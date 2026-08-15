@@ -501,7 +501,22 @@ impl EditorPatchApp {
             };
             let result = lib
                 .require_root_dir(target)
-                .and_then(|root| modules::set_module(&root, m, on));
+                .and_then(|root| {
+                    // 声明了 deploy_bridge_dll 的模块需要引擎版本目录（部署/摘除 dll）
+                    let version_dir = if m.deploy_bridge_dll {
+                        let vdir = target.version_dir();
+                        if !vdir.is_dir() {
+                            return Err(format!(
+                                "引擎版本目录不存在（无法部署 bgd_mcp_bridge.dll）: {}",
+                                vdir.display()
+                            ));
+                        }
+                        Some(vdir)
+                    } else {
+                        None
+                    };
+                    modules::set_module(&root, m, on, version_dir.as_deref())
+                });
             match result {
                 Ok(()) => {
                     self.status = format!(

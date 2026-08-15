@@ -1,6 +1,6 @@
 # xdeditor-160 / 批次A 逐文件研究记录（根级 main.lua、io_modifier.lua + config/ + console/ + examples/ + exception/ + global/ + guide/）
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\`（明文镜像，部分注释 GBK 乱码已忽略）。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/`（明文镜像，部分注释 GBK 乱码已忽略）。
 > 本批共 41 个 .lua：根级 2 + config/ 22 + console/ 3 + examples/ 2 + exception/ 3 + global/ 2 + guide/ 7。
 > 全部结论来自真实读取，关键结论标注 相对路径:行号。
 

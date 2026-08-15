@@ -26,8 +26,8 @@ stack traceback:
 0.3.0_需求3：增加功能：「补丁」标签的补丁，可以在本项目源码中指定要不要默认勾选，这样我们可以为必要的补丁默认开启，比如 0.2.0.txt 提的需求在编辑器帮助菜单下增加一个bgd_sce_tools 子菜单的补丁。这个就是默认勾选的。
 0.3.0_需求4：增加功能：「补丁」标签的补丁模块列表，应该根据补丁所在的源码包进行归类罗列。
 
-0.3.0_需求5：你可以看看「sce_app_visual-injector」，他的应用日志是放到「项目目录」的正确的框架文件夹中（例如：C:\Users\woaye\Documents\SCE Projects\test_res002\.bgd\log\app_visual-injector.log）。
-而我们是放到「D:\sce_online\update\editor-pd.spark.xd.com\bgd_editor_patch\log」，明显「sce_app_visual-injector」更合理，你觉得呢？请你改进日志生成这里，日志路径不要硬编码，怎么拿正确日志路径你可以读下「sce_app_visual-injector」相关代码参考。
+0.3.0_需求5：你可以看看「sce_app_visual-injector」，他的应用日志是放到「项目目录」的正确的框架文件夹中（例如：C:/Users/woaye/Documents/SCE Projects/test_res002/.bgd/log/app_visual-injector.log）。
+而我们是放到「D:/sce_online/update/editor-pd.spark.xd.com/bgd_editor_patch/log」，明显「sce_app_visual-injector」更合理，你觉得呢？请你改进日志生成这里，日志路径不要硬编码，怎么拿正确日志路径你可以读下「sce_app_visual-injector」相关代码参考。
 「sce_app_visual-injector」的日志也有个小问题，就是不会根据日期来分文件，这样会无限增大也是不好的，这里我们可以优化下，并且我们也优化下「sce_app_visual-injector」相关的逻辑。
 
 0.3.0_需求6：我发现「bgd_sce_tools」应用中心，现在不会在应用有新版的时候出现升级按钮，缺少相关升级应用的功能，这里需要补一下。

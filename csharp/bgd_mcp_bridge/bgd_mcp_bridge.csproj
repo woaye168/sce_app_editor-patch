@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>x64</Platforms>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <RootNamespace>BgdMcpBridge</RootNamespace>
+    <AssemblyName>bgd_mcp_bridge</AssemblyName>
+    <!-- 宿主程序集目录：本地开发默认指向星火编辑器 version-13 目录，零配置；
+         CI/其他环境用 -p:SceHostDir=<目录> 覆盖（仓库 ci/refs/ 有引用程序集副本）。 -->
+    <SceHostDir Condition="'$(SceHostDir)' == ''">D:/sce_online/version-13</SceHostDir>
+    <!-- 命令行传入的全局属性不能在项目内改值，故另算一份绝对路径版本：
+         相对路径按命令行调用时的当前目录归一化（HintPath 默认相对项目目录解析，会错位） -->
+    <SceHostDirFull>$([System.IO.Path]::GetFullPath('$(SceHostDir)'))</SceHostDirFull>
+  </PropertyGroup>
+
+  <!-- 直接引用宿主（星火编辑器 version-13）自带的程序集，保证版本与运行时完全一致，无需 NuGet。
+       全部 Private=false：不拷贝到输出目录，宿主进程已加载这些程序集。 -->
+  <ItemGroup>
+    <Reference Include="Microsoft.WinUI">
+      <HintPath>$(SceHostDirFull)/microsoft.winui.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="WinRT.Runtime">
+      <HintPath>$(SceHostDirFull)/winrt.runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Windows.SDK.NET">
+      <HintPath>$(SceHostDirFull)/microsoft.windows.sdk.net.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.InteractiveExperiences.Projection">
+      <HintPath>$(SceHostDirFull)/microsoft.interactiveexperiences.projection.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- 宿主编排程序集：SCE.CppInterface（EventManager/EventObject/EventData/ApplicationExport） -->
+    <Reference Include="sce">
+      <HintPath>$(SceHostDirFull)/sce.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- 宿主 DI 入口：SCEModule.Editor.GetService<T> / SCEModule.Interface.Event -->
+    <Reference Include="scemodule">
+      <HintPath>$(SceHostDirFull)/scemodule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

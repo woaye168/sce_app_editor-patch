@@ -5,7 +5,7 @@ description: "为星火编辑器补丁应用（sce_app_editor-patch）开发 pat
 
 # 开发 patches/ 补丁模块
 
-在 `d:\sce_online\Res\maps\sce_app_editor-patch` 仓库工作。先读该仓库 `AGENTS.md` 建立全貌。
+在 `d:/sce_online/Res/maps/sce_app_editor-patch` 仓库工作。先读该仓库 `AGENTS.md` 建立全貌。
 
 > 模块 = 不改编辑器库源码的独立补丁（运行时改行为），版本不敏感，可勾选启停。
 > 需要改库源文件（含入口插槽）的场景走 slots/，用 `sce-editor-lib-onboard` 技能。
@@ -22,7 +22,7 @@ description: "为星火编辑器补丁应用（sce_app_editor-patch）开发 pat
 4. **注册模块**：`src/core/modules.rs` 的 `builtin_modules()` 加 `PatchModule { id, pkg, name, description, default_enabled, files }`；`files` 用 `include_str!("../../patches/<pkg>/<id>/main.lua")`；`default_enabled: true` 仅给必要补丁
 5. **验证**：`cargo test` 全过 → `cargo build --release`
 6. **文档同步**：AGENTS.md「现有模块」+ README 功能列表，同次提交
-7. **发版**：`git tag v0.x.y && git push origin v0.x.y`（CI 出包）→ bump `d:\sce_online\Res\maps\bgd_sce_plugins\registry.json` 的 `version`/`tag` 并推送
+7. **发版**：`git tag v0.x.y && git push origin v0.x.y`（CI 出包）→ bump `d:/sce_online/Res/maps/bgd_sce_plugins/registry.json` 的 `version`/`tag` 并推送
 
 ## 现有模块参考
 

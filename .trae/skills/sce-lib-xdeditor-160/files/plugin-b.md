@@ -1,6 +1,6 @@
 # xdeditor-160 / plugin 批次D 逐文件研究记录（model_editor + obj_editor_cpp + obj_editor_ui + obj_editor_v2 + particle_editor + physic_editor_plugin + sample + tile_editor）
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\plugin\` 下 7 个子目录，共 247 个 .lua。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/plugin/` 下 7 个子目录，共 247 个 .lua。
 > 全部结论来自真实读取，关键结论标注行号。源文件部分注释为 GBK 编码（乱码已忽略）。
 > 注：`plugin/obj_editor_cpp/` **在镜像中不存在任何 .lua 文件**（旧数编 obj_editor 的 C++ 实现侧；plugin/init.lua:13 的 `include 'plugin.obj_editor'` 对应目录也未在镜像中出现，仅 obj_editor_ui（旧数编 Lua UI 层，仍被大量依赖）与 obj_editor_v2（新数编，默认启用）存在）。
 

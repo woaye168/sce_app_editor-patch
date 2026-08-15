@@ -13,7 +13,7 @@
 //! - 模块可声明 `default_enabled`：内核补丁首次创建补丁目录时自动启用。
 //! - 新增内置模块：`patches/<pkg>/<id>/` 下放 lua 文件 + `builtin_modules()` 注册。
 
-use super::crypto;
+use super::{bridge_deploy, crypto};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -34,6 +34,8 @@ pub struct PatchModule {
     pub default_enabled: bool,
     /// 模块文件：(模块目录内相对路径, 文件内容)
     pub files: &'static [(&'static str, &'static str)],
+    /// 启用/关闭时是否同步部署/摘除 bgd_mcp_bridge.dll（引擎目录 + deps.json 登记）
+    pub deploy_bridge_dll: bool,
 }
 
 /// 全部内置补丁模块（新增模块在此注册 + patches/<pkg>/<id>/ 下放文件）
@@ -46,6 +48,7 @@ pub fn builtin_modules() -> Vec<PatchModule> {
             description: "验证补丁链路：加载时输出日志，暴露全局标记 __EDITOR_PATCH__，并报告关键函数的解禁状态。",
             default_enabled: false,
             files: &[("main.lua", include_str!("../../patches/script/hello/main.lua"))],
+            deploy_bridge_dll: false,
         },
         PatchModule {
             id: "unwatch",
@@ -54,6 +57,7 @@ pub fn builtin_modules() -> Vec<PatchModule> {
             description: "移除并拦截编辑器对项目目录的文件变更监听（io.remove_watch / io.add_watch），外部修改项目文件时不再弹出重载提示。",
             default_enabled: false,
             files: &[("main.lua", include_str!("../../patches/script/unwatch/main.lua"))],
+            deploy_bridge_dll: false,
         },
         PatchModule {
             id: "menu_bgd",
@@ -62,6 +66,16 @@ pub fn builtin_modules() -> Vec<PatchModule> {
             description: "编辑器顶部菜单「帮助」下增加「bgd_sce_tools」子菜单，点击打开 bgd_sce_tools 的 GitHub 仓库。",
             default_enabled: true,
             files: &[("main.lua", include_str!("../../patches/xdeditor/menu_bgd/main.lua"))],
+            deploy_bridge_dll: false,
+        },
+        PatchModule {
+            id: "bgd_mcp_bridge",
+            pkg: "xdeditor",
+            name: "MCP 桥（外部 AI 控制）",
+            description: "在编辑器进程内启动 HTTP/MCP 服务（127.0.0.1），供外部 AI 调用编辑器命令（启动/停止调试等）。启用时部署 bgd_mcp_bridge.dll 到引擎目录。",
+            default_enabled: false,
+            files: &[("main.lua", include_str!("../../patches/xdeditor/bgd_mcp_bridge/main.lua"))],
+            deploy_bridge_dll: true,
         },
     ]
 }
@@ -89,13 +103,33 @@ pub fn enabled_modules(lib_require_root: &Path) -> Vec<String> {
     ids
 }
 
-/// 启用/关闭一个模块，并重建该库框架入口
-pub fn set_module(lib_require_root: &Path, module: &PatchModule, enable: bool) -> Result<(), String> {
+/// 启用/关闭一个模块，并重建该库框架入口。
+/// `version_dir`：引擎版本目录（<运行根>/version-<api>），模块声明 `deploy_bridge_dll`
+/// 时用于部署/摘除 bgd_mcp_bridge.dll；部署失败直接报错且不写模块文件，
+/// 避免 Lua 模块加载了但 dll 不在。
+pub fn set_module(
+    lib_require_root: &Path,
+    module: &PatchModule,
+    enable: bool,
+    version_dir: Option<&Path>,
+) -> Result<(), String> {
     let dir = patch_dir(lib_require_root).join(module.id);
     if enable {
+        if module.deploy_bridge_dll {
+            if let Some(vdir) = version_dir {
+                bridge_deploy::deploy(vdir)?;
+            }
+        }
         write_module_files(&dir, module)?;
-    } else if dir.exists() {
-        fs::remove_dir_all(&dir).map_err(|e| format!("删除 {} 失败: {e}", dir.display()))?;
+    } else {
+        if dir.exists() {
+            fs::remove_dir_all(&dir).map_err(|e| format!("删除 {} 失败: {e}", dir.display()))?;
+        }
+        if module.deploy_bridge_dll {
+            if let Some(vdir) = version_dir {
+                bridge_deploy::undeploy(vdir)?;
+            }
+        }
     }
     regenerate_entry(lib_require_root)
 }

@@ -72,6 +72,21 @@ impl EditorTarget {
         Ok(dir)
     }
 
+    /// 引擎运行根目录：editor_root 形如 <运行根>/Update/editor-pd.spark.xd.com，
+    /// 运行根即 editor_root 的上两级
+    pub fn engine_root(&self) -> PathBuf {
+        self.editor_root
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.editor_root.clone())
+    }
+
+    /// 引擎版本目录：<运行根>/version-<api_version>（引擎 dll 所在处，如 version-13）
+    pub fn version_dir(&self) -> PathBuf {
+        self.engine_root().join(format!("version-{}", self.api_version))
+    }
+
     /// 备份分组：<api版本>/<包名_版本>，如 `api13/script_199`
     pub fn backup_group(&self, pkg: &str) -> Result<String, String> {
         Ok(format!(
@@ -215,9 +230,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_engine_root_and_version_dir() {
+        // 临时目录构造 <运行根>/Update/editor-pd.spark.xd.com 形态
+        let base = std::env::temp_dir().join(format!("editor_patch_locate_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let editor_root = base.join("Update").join("editor-pd.spark.xd.com");
+        std::fs::create_dir_all(&editor_root).unwrap();
+
+        let target = EditorTarget {
+            api_version: "13".to_string(),
+            editor_root,
+            pak: serde_json::json!({}),
+        };
+        assert_eq!(target.engine_root(), base);
+        assert_eq!(target.version_dir(), base.join("version-13"));
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     #[ignore]
     fn smoke_locate_real_project() {
-        let project = Path::new(r"C:\Users\woaye\Documents\SCE Projects\test_res002");
+        let project = Path::new("C:/Users/woaye/Documents/SCE Projects/test_res002");
         let target = locate(project).unwrap();
         assert_eq!(target.api_version, "13");
         assert!(target.package_version("script").unwrap() > 0);

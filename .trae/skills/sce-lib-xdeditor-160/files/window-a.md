@@ -1,6 +1,6 @@
 # xdeditor-160 / window 根级文件逐文件研究记录（批次 A）
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\window\` 根级 31 个 .lua。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/window/` 根级 31 个 .lua。
 > window/ 拆三批：**A=根级文件（本文件，app 框架详写）；B=art_workbench/ 子目录（window-b.md）；C=其余子目录 autotest/components_lib/info_window/mechanism_editor/project_manager/refer_window/resource_store/ui（window-c.md）**。
 > 全部结论来自真实读取，关键结论标注行号。
 

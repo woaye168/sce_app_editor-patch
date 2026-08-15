@@ -5,7 +5,7 @@ description: "为星火编辑器补丁应用（sce_app_editor-patch）接入新�
 
 # 接入新目标库 / 制作 slots 插槽文件
 
-在 `d:\sce_online\Res\maps\sce_app_editor-patch` 仓库工作。先读该仓库 `AGENTS.md`。
+在 `d:/sce_online/Res/maps/sce_app_editor-patch` 仓库工作。先读该仓库 `AGENTS.md`。
 
 > slots/ = 「带插槽/修改的完整新源码文件」，按 `slots/<库名>/<库版本号>/<源码目录结构>/file.lua` 组织，应用补丁时整树复制覆盖进库目录。版本敏感是故意的。
 > 不改库源码的场景走 patches/ 模块（`sce-editor-patch-module` 技能）。

@@ -1,6 +1,6 @@
 # xdeditor-160 / trigger 目录逐文件研究记录
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\trigger\`（97 个 .lua）。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/trigger/`（97 个 .lua）。
 > 全部结论来自真实读取，关键结论标注行号。源文件注释部分 GBK 乱码已忽略。
 > 本目录是 **V1 触发编辑器（lua+ 可视化触发器）** 的实现：lua-parser（LPeg AST）+ rule（AST↔UI 转换规则）+ painter/ui（imgui 绘制）+ debug（触发调试器）。
 

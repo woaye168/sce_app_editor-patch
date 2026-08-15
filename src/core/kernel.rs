@@ -12,7 +12,7 @@
 //! 「状态检查」：插槽标记（+script 库解锁标记）是否在，编辑器升级覆盖后显示「未应用」。
 
 use super::locate::EditorTarget;
-use super::{backup, crypto, locate, log, modules, ops};
+use super::{backup, bridge_deploy, crypto, locate, log, modules, ops};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -406,6 +406,20 @@ fn restore_all(project_root: &Path, progress: &SharedProgress) -> Result<String,
                 log::log(Some(project_root), Some(&target.editor_root), "ERROR",
                     &format!("库[{}]还原失败: {e}", job.lib.pkg));
             }
+        }
+    }
+
+    // 追加恢复 sce.deps.json（若曾部署 MCP 桥）：失败只记日志，不中断整体还原
+    let version_dir = target.version_dir();
+    match bridge_deploy::restore_deps(&version_dir) {
+        Ok(()) => {
+            log::log(Some(project_root), Some(&target.editor_root), "INFO",
+                "sce.deps.json 恢复检查完成");
+        }
+        Err(e) => {
+            lines.push(format!("✘ 恢复 sce.deps.json：{e}"));
+            log::log(Some(project_root), Some(&target.editor_root), "ERROR",
+                &format!("恢复 sce.deps.json 失败: {e}"));
         }
     }
     Ok(lines.join("\n"))

@@ -1,6 +1,6 @@
 # script-199 / common/base 逐文件研究记录
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\script-199\common\base\` 根级 111 个 .lua（**不含 ui/ 子目录**，ui/ 另有 9 个文件：init/ui/bind/event/hook/brush/auto_scale/image_cache/rich_text_custom_tag，待另文研究）。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/script-199/common/base/` 根级 111 个 .lua（**不含 ui/ 子目录**，ui/ 另有 9 个文件：init/ui/bind/event/hook/brush/auto_scale/image_cache/rich_text_custom_tag，待另文研究）。
 > 全部结论来自真实读取，关键结论标注行号。源文件注释为 GBK 编码（个别乱码已忽略）。
 
 ## 总览

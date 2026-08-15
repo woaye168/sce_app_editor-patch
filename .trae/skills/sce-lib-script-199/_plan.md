@@ -1,6 +1,6 @@
 # script-199 库研究清单
 
-> 镜像源（明文）：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\script-199`（由 examples/decrypt_mirror 生成，对应 `Res/_m/script/199/script`）
+> 镜像源（明文）：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/script-199`（由 examples/decrypt_mirror 生成，对应 `Res/_m/script/199/script`）
 > 成果目录：`.trae/skills/sce-lib-script-199/`
 > 规则：逐文件记录（每个 .lua 都要有条目）、结论标注 `相对路径:行号`、成果即时落盘、不臆测。
 

@@ -1,6 +1,6 @@
 # script-199 / common/base/ui + common/test + test 逐文件研究记录
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\script-199\` 下的
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/script-199/` 下的
 > - `common/base/ui/`（13 个 .lua，UI 框架核心，详写）
 > - `common/test/`（73 个 .lua，测试用例，简写）
 > - `test/gui_component/`（13 个 .lua，组件框架测试，简写）

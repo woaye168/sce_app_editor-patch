@@ -1,6 +1,6 @@
 # xdeditor-160 库研究清单
 
-> 镜像源（明文）：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160`（对应 `Res/_m/xdeditor/160/xdeditor`）
+> 镜像源（明文）：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160`（对应 `Res/_m/xdeditor/160/xdeditor`）
 > 成果目录：`.trae/skills/sce-lib-xdeditor-160/`
 > 规则：逐文件记录（每个 .lua 都要有条目）、结论标注 `相对路径:行号`、成果即时落盘、不臆测。
 

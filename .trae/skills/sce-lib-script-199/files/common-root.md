@@ -1,6 +1,6 @@
 # script-199 / common 根级 .lua 逐文件研究记录
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\script-199\common\` 根级 12 个 .lua（不含 base/、test/ 等子目录）。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/script-199/common/` 根级 12 个 .lua（不含 base/、test/ 等子目录）。
 > 全部结论来自真实读取，关键结论标注行号。源文件注释为 GBK 编码。
 
 ## 加载链总结

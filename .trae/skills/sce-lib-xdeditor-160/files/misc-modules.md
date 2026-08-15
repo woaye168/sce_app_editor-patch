@@ -1,6 +1,6 @@
 # xdeditor-160 / 批次B 逐文件研究记录（http_requests/ + ini/ + map_generator/ + map_starter/ + profiler/ + project_manager/ + ref/ + scene_test_enter_point/ + sub_process_enter_point/ + temp/ + test/ + texture_merger/ + texture_viewer/ + third-party/ + upload_map/ + utils/）
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\`（明文镜像）。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/`（明文镜像）。
 > 本批共 71 个 .lua：http_requests/ 3、ini/ 22、map_generator/ 1、map_starter/ 1、profiler/ 3、project_manager/ 2、ref/ 1、scene_test_enter_point/ 3、sub_process_enter_point/ 7、temp/ 1、test/ 13、texture_merger/ 1、texture_viewer/ 1、third-party/ 4、upload_map/ 2、utils/ 6。
 > 全部结论来自真实读取，关键结论标注 相对路径:行号。project_manager/ 与 utils/ 详写，其余简写。
 

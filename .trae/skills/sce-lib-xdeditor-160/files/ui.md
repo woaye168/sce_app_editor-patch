@@ -1,6 +1,6 @@
 # xdeditor-160 / ui 目录逐文件研究记录
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\ui\`（86 个 .lua）。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/ui/`（86 个 .lua）。
 > 全部结论来自真实读取，关键结论标注行号。
 > 本目录是 **编辑器主界面层**：菜单栏（menu_bar）、主视图（main_view）、登录（login）、通用组件库（base/ common/ components/ attribute_table/）。
 

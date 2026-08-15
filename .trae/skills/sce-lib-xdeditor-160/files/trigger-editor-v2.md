@@ -1,6 +1,6 @@
 # xdeditor-160 / trigger_editor_v2 目录逐文件研究记录
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\trigger_editor_v2\`（47 个 .lua）。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/trigger_editor_v2/`（47 个 .lua）。
 > **全部是 TypeScriptToLua 生成物**（const.lua:1 有 `Generated with https://github.com/TypeScriptToLua/TypeScriptToLua` 标记）——V2 触发编辑器的 TS 源码编译产物。统一模式：首行 `require("trigger_editor_v2.lua.lualib_bundle")` 取 `__TS__*` 运行时函数，`local ____exports = {}` 收集导出，末尾 `return ____exports`。故本批一律简录。
 > 注意：require 路径大小写不统一（`define.Element` / `define.element`、`define.READER` / `define.reader` 混用），Windows 文件系统不敏感才能工作。
 

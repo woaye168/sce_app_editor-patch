@@ -16,7 +16,7 @@ sce_app_editor-patch ，实现的功能是，给星火编辑器打补丁，实�
 第5步：从「第4步」中，我们提取「D:/sce_online/Update/editor-pd.spark.xd.com」路径。
 第6步：用「第5步」的路径，然后加上「api_pak_version.json」得到路径「D:/sce_online/Update/editor-pd.spark.xd.com/api_pak_version.json」
 第7步：用「第6步」JSON文件，结合「第3步」得到的项目编辑器版本号，我们可以拿到项目所用编辑器版本的所有包。在这些包里，我们主要是拿到「script 包，也可以称为 common包」，类似  "13":{ "script":199}。
-第8步：拿「script」包的版本号之后，我们就可以用「第5步」的路径进行拼接，找到「script」包在本电脑的真实文件路径，比如： 「D:\sce_online\update\editor-pd.spark.xd.com\res\_m\script\199\script\common」
+第8步：拿「script」包的版本号之后，我们就可以用「第5步」的路径进行拼接，找到「script」包在本电脑的真实文件路径，比如： 「D:/sce_online/update/editor-pd.spark.xd.com/res/_m/script/199/script/common」
 第9步：「需求2 解除编辑器的使用限制」，实际就是还原「common」包里的「isolation.lua」文件。并且把里面置为nil禁用的函数解除禁止。（注意要备份没还原没修改的原文件，以后类似但凡补丁涉及到修改星火编辑器源码的也都要备份，所以本应用有完备的备份机制和合理的自持的可扩展的备份文件目录）
 第10步：「需求1 初步完善补丁机制的架构」，其实也可以在「isolation.lua」补丁来解决。比如在「第8步」得到的「common」目录下，创建一个「本仓库」同名的目录「sce_app_editor-patch」，然后把这个目录包的入口文件注入到「isolation.lua」。
 第11步：当完成「需求1」和「需求2」，实际上也就可以完成了。无非就是勾选补丁模块「开启」或者「关闭」。

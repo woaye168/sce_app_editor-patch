@@ -42,6 +42,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # C# 桥接程序集（bgd_mcp_bridge）：引用程序集用仓库 ci/refs/ 副本（宿主 version-13 自带 dll）
+      - name: Build bgd_mcp_bridge (.NET)
+        run: dotnet build csharp/bgd_mcp_bridge -c Release -p:Platform=x64 -p:SceHostDir=ci/refs
+
       # 版本号唯一来源是 git tag：构建前把 tag 版本注入 Cargo.toml
       # 源码中的 version 固定为 0.0.0-dev 占位，无需手工同步
       - name: Inject version from tag

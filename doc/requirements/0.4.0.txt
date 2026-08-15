@@ -1,0 +1,153 @@
+sce_app_editor-patch 0.4.0 —— C# 扩展模块注入 + 编辑器内 HTTP 服务（外部 AI 控制调试的地基与首版）
+
+目标：让星火编辑器进程内能加载并运行**我们自己编写的 C# DLL（bgd_mcp_bridge.dll）**，并在其上一次性交付完整底层能力：HTTP JSON-RPC 服务 + MCP（Streamable HTTP）+ 调试/文件等全命令控制 + 隐藏窗口 + 弹窗抑制 + 原生事件推送。
+范围说明：本版一次性把底层做完（用户明确要求 2026-08-16）；仅 stdio-only 客户端 shim、更多业务方法/事件按需扩充留后续。
+
+**当前状态：冒烟测试已通过（2026-08-16）**——编辑器内成功弹出测试 WinUI 窗口，探针日志确认我们的 C# 代码在编辑器进程内执行（pid 实证）。
+研究细节已全部沉淀：doc/research/csharp-module-injection.md（C# 注入）、doc/research/editor-debug-control.md（调试启停机制与方案对比）。
+
+----
+〇、硬性约定（本版本新增，优先级最高）
+
+1. **命名**：dll 文件名与程序集名 = `bgd_mcp_bridge`（bgd_mcp_bridge.dll）；补丁模块 id 同名（patches/xdeditor/bgd_mcp_bridge/main.lua）。冒烟期的 BgdBridge / bgd_bridge_test 命名全部废弃。
+2. **部署时机**：dll **在勾选（启用）补丁模块时才部署**进引擎版本目录（version-<api>/），同时注入 sce.deps.json 条目；取消勾选时移除 dll 并摘除 deps.json 条目。内核「应用补丁」不负责 dll 部署。deps.json 的备份（sce.deps.json_bak）在首次注入时建立，还原补丁时整体恢复。
+3. **禁止硬编码路径**：
+   - 编辑器根按 0.1.0 定位链获取（项目 project/map_settings.json → api_version；项目 script/tsconfig.json → typeRoots → 提取编辑器根；api_pak_version.json → 包版本）。
+   - 引擎运行根（D:/sce_online 一级）由编辑器根推导（编辑器根的父目录的父目录，如 D:/sce_online/Update/editor-pd.spark.xd.com → D:/sce_online），version-<api_version> 目录即其下。locate.rs 需新增此推导并缓存。
+   - C# 侧日志目录 = <引擎运行根>/logs/bgd_csharp/，按日期+小时滚动（bgd_csharp-YYYY-MM-DD-HH.log）。C# 侧不得写死该路径——由进程主模块路径（Process.MainModule）在运行时推导运行根。
+4. **路径风格统一**：所有仓库（本仓库 + bgd_sce_framework + bgd_sce_plugins + sce_app_visual-injector）源码/文档中的路径一律使用正斜杠形式（C:/xxx/xxx），禁止 \ 与 / 混用。Rust/Lua/C#/TS 拼接路径统一用正斜杠（Windows API 与引擎均兼容）。
+5. **最终目标**：推送 GitHub 私有仓库，打 tag 触发 CICD 自动构建发布。CI 需新增 .NET SDK 步骤编译 csharp/bgd_mcp_bridge，产出的 dll 由 Rust 编译期嵌入 exe（include_bytes!）随单一 sce_app_editor-patch.exe 分发（asset_name 不变）。
+
+----
+一、研究成果（已实测验证，详见 doc/research/csharp-module-injection.md）
+
+【1】运行环境
+- 编辑器运行目录下按 api 版本分目录存放引擎：version-13（api 13）等。
+- version-13 内嵌完整 CoreCLR（net9.0 自包含 .NET 9.0.13）：coreclr/hostfxr/hostpolicy + sce.runtimeconfig.json。
+- 托管程序集：sce.dll（主编排）、scemodule.dll（官方模块集）、scecustomcontrol.dll 等；宿主 WinUI 3.1.6（≈ WASDK 1.6.250205002）。
+- 运行时自带 system.net.httplistener.dll / system.net.sockets.dll —— C# 侧开 HTTP 服务的条件天然具备。
+
+【2】官方模块机制（Lua → C#）
+- SCE.Common.create_csharp_module('Name') → sceengine.dll → 托管事件 Event.CreateModule → sce.dll App.cs:181-213 按名字硬编码 switch 分派，**未知名字返回 null，不可扩展**。
+- 模块类约定：public sealed class Xxx : WindowSCE, IServiceModule（WinUI 3 窗口 + DI 注册）。
+
+【3】关键注入点（已实测打通）
+- sce.dll App.cs:214-217 订阅 Event.ActivateWindow，处理是**泛型反射**：
+  `((Window)Activator.CreateInstance(Type.GetType(eventData.GetValue("ModuleType").GetString())))?.Activate();`
+- Lua 侧 API（menu_bar.lua:2879 注释残留实证）：`SCE.Common.csharp_activate_window('命名空间.类名, 程序集名')`
+- 实测：必须传程序集限定名；入口类继承 Window + 无参 ctor 即可被创建并 Activate()。
+
+【4】程序集解析（已实测打通）
+- dll 复制进 version-<api>/，sce.deps.json 追加：
+  - targets[".NETCoreApp,Version=v9.0/win-x64"]["bgd_mcp_bridge/1.0.0"] = { runtime: { "bgd_mcp_bridge.dll": { assemblyVersion, fileVersion } } }（条目都在 win-x64 子组，顶层 v9.0 组为空）
+  - libraries["bgd_mcp_bridge/1.0.0"] = { type: "project", serviceable: false, sha512: "" }
+- 无需声明 dependencies（引用的 Microsoft.WinUI / WinRT.Runtime / Microsoft.Windows.SDK.NET 已在宿主依赖图中）。
+
+【5】C# 侧编译方式（实测修正，重要）
+- **不要用 WASDK NuGet 包**：Microsoft.WindowsAppSDK 1.6 的 MrtCore.PriGen 在 dotnet SDK 10 上缺 ExpandPriContent 任务，构建失败。
+- 实测可行：**直接 Reference 宿主 version-13 自带投影程序集**（microsoft.winui.dll / winrt.runtime.dll / microsoft.windows.sdk.net.dll），TFM=net9.0-windows10.0.19041.0，零 NuGet 依赖，版本与宿主严格一致。
+
+【6】Lua 侧调用要点（实测踩坑）
+- **SCE 不是全局**：补丁模块必须 `local SCE = ImportSCEContext()`。
+- **base.timer 签名是 (timeout, count, on_timer)**；单次延迟用 **base.wait(timeout, fn)**。
+- **时序**：补丁入口执行时托管侧事件订阅未必就绪——base.wait(5000) 延迟 + pcall 失败重试（3s×5）实测可靠。
+
+【7】约束与风险
+- 强转 Window：入口类必须继承 Window；Activate() 会真实弹窗，正式版改隐藏窗口或纯服务。
+- Lua 侧 ok=true 不代表建成（Type.GetType 失败时异常被官方事件系统吸收），验证靠 C# 侧探针日志。
+- 引擎版本目录随 api 版本区分，编辑器升级覆盖后注入失效 → 与 slots 同生命周期，重新「应用补丁」即可。
+- 杀软风险低：纯托管无签名 dll、无注入技术、宿主自身加载器正常加载；监听 127.0.0.1 不触发防火墙提示。
+
+----
+二、0.4.0 需求范围
+
+需求1：C# 扩展项目产品化（冒烟版已验证，需改名收尾）
+- csharp/BgdBridge/ → 改名 csharp/bgd_mcp_bridge/（程序集名 bgd_mcp_bridge，入口类 BridgeWindow : Window 无参 ctor）。
+- 实现正式日志器：<引擎运行根>/logs/bgd_csharp/bgd_csharp-YYYY-MM-DD-HH.log（日期+小时滚动，多线程加锁追加，运行根由 Process.MainModule 推导，禁止硬编码）。
+- 冒烟期弹窗保留为可见性证据（正式服务版在后续版本改隐藏窗口）。
+
+需求2：部署与还原（挂到补丁模块启停，而非内核）
+- 模块**启用**时：定位引擎运行根/version-<api>/ → 复制 bgd_mcp_bridge.dll（dll 由 exe 内嵌资源释放）→ 备份并注入 sce.deps.json（幂等）。
+- 模块**关闭**时：摘除 deps.json 条目 + 删除 dll（deps.json 若注入前无备份则说明非我们改的，不动）。
+- 「还原补丁」：在现有还原基础上追加 deps.json 整体恢复（sce.deps.json_bak）。
+- 遵循安全红线：任何写操作前备份，写盘原子替换。
+- 冒烟期手工部署物（version-13/BgdBridge.dll、sce.deps.json 的 BgdBridge 条目、xdeditor 补丁目录 bgd_bridge_test）在产品化完成后清理。
+
+需求3：补丁模块 bgd_mcp_bridge（Lua 侧）
+- patches/xdeditor/bgd_mcp_bridge/main.lua，职责两个：
+  a) 激活 C# dll：`local SCE = ImportSCEContext()` + base.wait(5000) + pcall 重试（3s×5）调 `SCE.Common.csharp_activate_window('<命名空间>.BridgeWindow, bgd_mcp_bridge')`；
+  b) 充当 C# 的 Lua 侧执行代理：`SCE.GetEventManager():register_event('bgd_mcp_cmd', fn)` 监听 C# 命令事件，解析 method 执行（start_debug → window_title_bar.call_command('调试/调试')；stop_debug → call_command('调试/停止')；get_status → 查 GamePlayInEditor 槽位 + 地图路径），经 `GetMainFrame():SendEvent('bgd_mcp_ack', {id=..., ok=..., data=...})` 回传结果。
+- 按现有模块注册机制接入（builtin_modules()，pkg=xdeditor），在「补丁」标签可勾选启停（参考 sce-editor-patch-module 技能）。
+
+需求4：研究沉淀 ✅（已完成）
+- doc/research/csharp-module-injection.md、doc/research/editor-debug-control.md。
+- 库知识库增补：.trae/skills/sce-lib-xdeditor-160 增 csharp 注入条目（反编译证据 + 实测坑）。
+
+需求5：路径风格统一（跨仓库顺手优化，审计已完成）
+- 统一 sce_app_editor-patch / bgd_sce_framework / bgd_sce_plugins / sce_app_visual-injector 四仓库源码与文档中的路径为正斜杠形式（C:/xxx/xxx），消除 \ 与 / 混用。
+- 审计结果（2026-08-16，即修复清单）：
+  - 源码 2 处：src/core/locate.rs:220（测试用硬编码 C:/Users/...）、csharp 冒烟代码 BridgeWindow.cs:27-29（随需求1重写覆盖）；
+  - 文档 18 处：本仓库 .trae/skills/ 各 SKILL.md/_plan.md/files/*.md 与 doc/requirements/0.1.0~0.3.0.txt 中的 d:/sce_online/... 写法；bgd_sce_framework/AGENTS.md:66；sce_app_visual-injector/README.md:21；bgd_sce_plugins 干净；
+  - 相对路径反斜杠、单路径内 / 与 \ 混用：源码零命中（混用观感来自文档与冒烟临时文件，编辑器包内 bgd_bridge_test/main.lua 随冒烟产物清理）。
+- 同步更新 .gitignore：补充 csharp/**/bin/ 与 csharp/**/obj/（当前只有 target/，不补会把含本机绝对路径的构建产物提交进仓库）。
+- 同步更新文档：AGENTS.md（新增 csharp/ 目录结构、bgd_mcp_bridge 机制、定位链扩展、CI 变化）与 README.md（如适用）；功能改动与文档更新同一提交完成。
+- 改动代码路径时遵守各仓库验证约定（编译通过 + 必要的 CLI 验证）。
+
+需求6：GitHub 推送与 CICD
+- 仓库推送 GitHub（私有），版本号三处同步约定不变，tag 触发 release.yml。
+- CI 新增：setup dotnet SDK → dotnet build csharp/bgd_mcp_bridge（Release x64）→ cargo build 时将 dll 以 include_bytes! 嵌入 sce_app_editor-patch.exe → 上传单一 asset（asset_name 恒为 sce_app_editor-patch.exe，不变）。
+- 发版后同步 bgd_sce_plugins 的 registry.json（version/tag）。
+
+需求7：编辑器内 HTTP 服务（外部 AI 控制调试，纳入本版）
+- 依据：C# ↔ Lua 双向事件桥已核实（doc/research/csharp-module-injection.md §9）：C# EventManager.SendEvent(string,string) → Lua register_event 收；Lua MainFrame:SendEvent → C# EventObject.SubscribeToEvent 收，均支持任意字符串事件名。
+- C# 侧：BridgeWindow 激活后启动 HttpListener，绑定 127.0.0.1（默认端口 39177，被占则 +1 重试至 39187，实际端口写 <运行根>/logs/bgd_csharp/port 文件并记日志）；后台线程处理请求，SendEvent 前切回 WinUI/UI 线程（DispatcherQueue）。
+- 生命周期：服务随编辑器进程存亡（进程内线程，无外残留）。订阅原生 Event.ExitEditor 做优雅停机：停 listener、删除 port 文件；外部调用方连接失败即视为「编辑器不在线」（port 文件可能陈旧，以连通性为准）。
+- 协议：HTTP POST JSON-RPC 风格 `{id, method, params}` → `{id, result|error}`。首版方法：
+  - **call_command（通用透传，核心）**：params {name} → Lua 侧 window_title_bar.call_command(name)——官方已注册 80+ 命令一次全覆盖（'调试/调试'、'调试/停止'、'文件/打开'、'文件/新建'、'文件/保存'、'文件/保存数编'、'文件/强制重新加载项目'、'调试/再次调试上次调试版本'、'调试/调试(本地服务器)'、'发布/发布项目' 等，清单见 doc/research/editor-debug-control.md）
+  - **list_commands**：返回当前已注册命令名列表（Lua 侧 wrap window_title_bar.register/register_command 记录命令表实现）
+  - 常用糖：start_debug / stop_debug / get_status（{ map_open, map_path, debugging（GamePlayInEditor 槽位）, port }）
+- 请求-响应闭环：C# 发 cmd 带自增 id，订阅 'bgd_mcp_ack' 按 id 匹配，超时（如 30s，启动调试较慢）返回超时错误。
+- 错误处理：Lua 侧全程 xpcall，错误文本经 ack 回传；弹窗抑制见需求10。
+
+需求8：MCP 服务直接内置于 C#（无外部进程）
+- 在同一 HttpListener 上增加 `/mcp` 端点，实现 MCP **Streamable HTTP** 传输（单端点 POST/GET，JSON-RPC 2.0，System.Text.Json 手写协议层即可，零新增依赖）。
+- tools/list 暴露与需求7 对应的 tools（call_command / list_commands / start_debug / stop_debug / get_status）；tools/call 映射到同一分发器（与 HTTP JSON-RPC 共用核心）。
+- 支持 initialize / notifications/initialized / ping 等基础握手；resources/prompts 首版返回空。
+- 取舍说明：放弃「外部 stdio 薄壳进程」作为主路径——MCP Streamable HTTP 已被主流 AI 客户端支持，直连 URL 即可；stdio-only 客户端的 shim 留作后续可选。
+
+需求9：BridgeWindow 自隐藏（纯后台服务）✅（2026-08-16 实测通过）
+- 宿主无条件 Activate() 我们的窗口 → ctor 订阅 Activated 事件立即 `AppWindow.Hide()`（需引用宿主 microsoft.interactiveexperiences.projection.dll，已验证编译通过）。
+- 实测：重启编辑器后窗口不残留可见，探针日志写入 'hidden-mode test' 行（pid 实证）。
+- 窗口仍保留一个「服务状态」内容页（手动再激活时可查看端口/请求计数），但不主动显示。
+
+需求10：错误弹窗抑制与文本回传
+- Lua 侧 wrap `require 'ui.components.message_window'` 的 message_window 函数（模块级单点，官方所有弹窗都经此）：受控开关（默认关，start_debug 等 AI 驱动流程期间开启）。
+- 抑制开启时：不弹窗，自动以默认 opt（Close/Confirm 优先级策略）回调原流程，同时把 {title, prompt, btn_text} 经 'bgd_mcp_event' 推送给 C#（外部可取到错误文本）。
+- 兜底：C# 侧订阅原生 Event.ShowMessageBox 事件感知弹窗发生（Event 枚举已核实含此值）。
+
+需求11：原生事件推送（编辑器 → 外部）
+- C# 订阅 ApplicationExport 原生事件（Event 枚举已核实：Update / E_LoadMap / CreateModule / ActivateWindow / ExitEditor / UpdateProgress / ShowMessageBox / NotifyCSharpTriggerEditor / AnimationEditorShow / CreateNewProfiler / MaterialEditorShow）。
+- Lua 侧业务事件（EVENT.pie_will_launch、load_map_done、save_map 等）经事件桥转发给 C#。
+- C# 维护带序号的环形事件缓冲（如 1000 条），对外提供 `GET /events?since=<seq>` 增量拉取；MCP 侧同名 resource/notification 暴露。
+
+----
+三、验收标准（全部满足才算 0.4.0 完成）
+
+1. ✅ 链路验证：编辑器内弹出我们自己的 WinUI 窗口，探针日志确认 C# 代码在编辑器进程内运行（2026-08-16 实测通过，pid 实证）。
+2. ⬜ 勾选 bgd_mcp_bridge 补丁模块即自动完成 dll 部署 + deps.json 注入，重启编辑器后我们的 C# 代码运行（日志落盘 <运行根>/logs/bgd_csharp/ 且按小时滚动）；
+3. ⬜ 取消勾选后 dll 与 deps.json 条目移除；「还原补丁」后 deps.json 与原始字节一致；
+4. ⬜ 全仓库无硬编码绝对路径，路径风格统一为正斜杠；
+5. ⬜ cargo test 通过（部署/还原逻辑有临时目录集成测试守护）；
+6. ⬜ 推送 GitHub，打 tag CICD 成功出包（内含 bgd_mcp_bridge.dll）；
+7. ⬜ HTTP 服务端到端：外部 curl/脚本 POST call_command('调试/调试') → PIE 起来；call_command('调试/停止') → 停止；get_status / list_commands 返回正确；
+8. ⬜ MCP 端点端到端：AI 客户端连 http://127.0.0.1:<port>/mcp，initialize → tools/list → tools/call(start_debug) 全通；
+9. ✅ BridgeWindow 不残留可见窗口（2026-08-16 隐藏模式实测通过）；服务状态页可手动唤出留待产品化确认；
+10. ⬜ AI 驱动 start_debug 期间出错时不弹窗、错误文本经 /events 可取；
+11. ⬜ 打开地图后外部 GET /events 能拉到 E_LoadMap / pie_will_launch 等事件记录。
+
+----
+四、后续展望（不在 0.4.0 范围）
+
+- stdio-only AI 客户端的 MCP shim（可选，协议已在 C# 内稳定，仅加壳）。
+- 更多业务方法与事件按需扩充（触发器/数编读写等，同事件桥模式复制）。
+- 多 api 版本（version-12/2000 等）矩阵实测。

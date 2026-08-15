@@ -1,6 +1,6 @@
 # xdeditor-160 / plugin 批次C 逐文件研究记录（根级 + attribute_editor + bloodstrip_editor + gui_editor + light_edit_ui + localization_manager + make_human_plugin + material_editor）
 
-> 研究对象：`D:\sce_online\Res\maps\bgd_glzy\.editor_src_mirror\xdeditor-160\plugin\` 根级 7 文件 + 7 个子目录，共 71 个 .lua。
+> 研究对象：`D:/sce_online/Res/maps/bgd_glzy/.editor_src_mirror/xdeditor-160/plugin/` 根级 7 文件 + 7 个子目录，共 71 个 .lua。
 > 全部结论来自真实读取，关键结论标注行号。源文件部分注释为 GBK 编码（乱码已忽略）。
 
 ## 插件机制总结（根级文件，重点）

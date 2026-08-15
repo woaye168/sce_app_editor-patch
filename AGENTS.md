@@ -31,6 +31,8 @@ sce_app_editor-patch/
 │       └── modules.rs     # 补丁模块注册（按库分组/默认勾选）/启停/框架入口重建
 ├── patches/
 │   └── <包名>/<模块id>/main.lua  # 内置补丁模块（不改库源码，编译期 include_str! 嵌入）
+├── csharp/
+│   └── bgd_mcp_bridge/    # .NET 9 类库：编辑器进程内 MCP 桥（编译期 include_bytes! 嵌入 exe）
 ├── slots/
 │   └── <包名>/<库版本>/<源码目录结构>/file.lua  # 插槽文件（改库源码，版本敏感，include_dir 嵌入）
 ├── examples/
@@ -38,6 +40,7 @@ sce_app_editor-patch/
 │   └── make_slots.rs      # 工具：生成 slots 插槽文件（解密+GBK转UTF-8+注入）
 ├── .trae/skills/          # 流程技能（patch-module/lib-onboard）+ 库知识库（sce-lib-<库>-<版本>）
 ├── doc/requirements/      # 各版本需求文档
+├── doc/research/          # 研究成果沉淀（csharp 模块注入、编辑器调试控制等）
 ├── .github/workflows/release.yml  # tag 触发构建发布
 └── Cargo.toml             # version 固定 0.0.0-dev，CI 按 tag 注入
 ```
@@ -81,6 +84,12 @@ sce_app_editor-patch/
 - 备份：`<编辑器根>/bgd_editor_patch/backup/<api版本>/<包名_版本>/` 整树 + `.manifest.json`，同分组只备首次。测试用 `EDITOR_PATCH_BACKUP_DIR` 覆盖。
 - 日志：优先 `<项目>/.bgd/log/app_editor-patch-YYYY-MM-DD.log`（与 visual-injector 一致，按日期分文件）；项目无 .bgd 时退回 `<编辑器根>/bgd_editor_patch/log/`。
 
+### bgd_mcp_bridge（C# 扩展注入）
+
+- dll 在勾选补丁模块时部署到 `<运行根>/version-<api>/` 并登记 `sce.deps.json`（备份 `sce.deps.json_bak`）；关闭时摘除；「还原补丁」时整体恢复。
+- 编辑器内经 `SCE.Common.csharp_activate_window` 激活，隐藏窗口内跑 HttpListener（127.0.0.1:39177+）暴露 HTTP JSON-RPC 与 MCP `/mcp` 端点；C#↔Lua 双向走事件总线（`bgd_mcp_cmd`/`bgd_mcp_ack`/`bgd_mcp_event`）。
+- 详见 [doc/research/csharp-module-injection.md](doc/research/csharp-module-injection.md)。
+
 ### 开发工具（examples/）
 
 - `decrypt_mirror`：`cargo run --example decrypt_mirror -- <包目录> <输出目录>` 整库解密出明文镜像（源码研究用）
@@ -109,6 +118,7 @@ git tag v0.x.0 && git push origin v0.x.0   # 触发 CI：注入版本号 → 构
 ```
 
 - 版本号唯一来源是 git tag（CI 注入 Cargo.toml，源码固定 `0.0.0-dev`）
+- **C# 桥 dll 是构建前置**：CI 需先 `dotnet build csharp/bgd_mcp_bridge`（Release x64）再 `cargo build`（Rust 以 `include_bytes!` 嵌入该 dll）；本地 `cargo build` 前同样需先构建 csharp dll
 - **本应用无自我更新**：仓库私有，版本更新由宿主 bgd_sce_tools 应用市场负责（registry.json 走 API 下载 asset，需工具侧配置 GitHub Token——fine-grained PAT 需把本仓库加入授权列表）
 - 发版后同步更新 bgd_sce_plugins 的 `registry.json`（`version`/`tag`），`asset_name` 恒为 `sce_app_editor-patch.exe`
 

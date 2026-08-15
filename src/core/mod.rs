@@ -6,5 +6,6 @@ pub mod kernel;
 pub mod locate;
 pub mod log;
 pub mod modules;
+pub mod ops;
 
 pub use locate::{locate, EditorTarget};

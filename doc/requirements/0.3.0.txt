@@ -1,0 +1,40 @@
+0.3.0_需求1：0.2.0, 「应用补丁」之后，启动星火编辑器会报错：
+Lua运行错误，请尝试重启编辑器。
+xdeditor/ui/menu_bar.lua:3170: <eof> expected near 'window_title_bar'
+stack traceback:
+	[C]: in global 'require'
+	xdeditor/ui/main_view.lua:1: in main chunk
+	[C]: in upvalue 'require'
+	base/preload/reload.lua:27: in function '@common/preload/reload.raw_include'
+	[C]: in global 'include'
+	xdeditor/ui/init.lua:33: in main chunk
+	[C]: in upvalue 'require'
+	base/preload/reload.lua:27: in function '@common/preload/reload.raw_include'
+	[C]: in global 'include'
+	xdeditor/main.lua:473: in upvalue 'show_editor_main_ui'
+	xdeditor/main.lua:780: in upvalue 'func'
+	xdeditor/ui/login.lua:666: in function <xdeditor/ui/login.lua:625>
+
+0.3.0_需求2：实际上，你看我们补丁是跟着星火编辑器实际运行需要加载的库决定的。所以在「内核」标签下，补丁点应该打在该库的入口点。
+这里个信息我需要同步给你：实际上我们对库的加密码版本直接替换成源码版本也是可以直接正常运行星火编辑器的，所以我们补丁之后完全可以就是裸露源码，这样也方便我们后续自己查看，和其他一些读源码的场景。
+那么，我们就可以更加聪明一点的做法，应用补丁就是直接把整个库进行解密，然后在入口点插入补丁插槽，以及在该库下面创建补丁目录。还原也能直接用整个备份的各个库来还原。
+还有一点，我认为也是有更优的实现方法的：你看 「0.1.0.txt」需求，我们知道获取「D:/sce_online/Update/editor-pd.spark.xd.com/api_pak_version.json」以及从游戏项目目录中的「 项目路径/project/map_settings.json」文件能获取到 api_version 版本号。
+所以，我们何必不直接把项目所用的api版本的所有包版本一次性拿到，后续使用，我们只是需要这个包的具体相对路径以及加上版本号就可以拼接出加载库的源码路径了。你说对吧？
+还是要提醒你下不是每个库都有加密，也有可能库的部分文件加密部分文件不加密，所以我们再解密整个库的时候，要智能的处理。
+还有，解密源码的时候由于都是小文件，而这个动作现在都放在了「内核」应用补丁环节，所以我们可能需要进度展示，而且可能需要用高性能的方案来执行解密，比如我以前自己拿python写的有用num一个什么库。
+
+0.3.0_需求3：增加功能：「补丁」标签的补丁，可以在本项目源码中指定要不要默认勾选，这样我们可以为必要的补丁默认开启，比如 0.2.0.txt 提的需求在编辑器帮助菜单下增加一个bgd_sce_tools 子菜单的补丁。这个就是默认勾选的。
+0.3.0_需求4：增加功能：「补丁」标签的补丁模块列表，应该根据补丁所在的源码包进行归类罗列。
+
+0.3.0_需求5：你可以看看「sce_app_visual-injector」，他的应用日志是放到「项目目录」的正确的框架文件夹中（例如：C:\Users\woaye\Documents\SCE Projects\test_res002\.bgd\log\app_visual-injector.log）。
+而我们是放到「D:\sce_online\update\editor-pd.spark.xd.com\bgd_editor_patch\log」，明显「sce_app_visual-injector」更合理，你觉得呢？请你改进日志生成这里，日志路径不要硬编码，怎么拿正确日志路径你可以读下「sce_app_visual-injector」相关代码参考。
+「sce_app_visual-injector」的日志也有个小问题，就是不会根据日期来分文件，这样会无限增大也是不好的，这里我们可以优化下，并且我们也优化下「sce_app_visual-injector」相关的逻辑。
+
+0.3.0_需求6：我发现「bgd_sce_tools」应用中心，现在不会在应用有新版的时候出现升级按钮，缺少相关升级应用的功能，这里需要补一下。
+
+0.3.0_需求7：如果你做好了前面说的「0.3.0_需求2」，那么请为本项目「编辑器补丁」创建1个或者多个skills吧。这个skill在我后续提出新的编辑器补丁需求时，AGENT能够调用此技能快速开发减少幻觉。
+
+---
+前面2次相关的需求，你也可以读取一次，强化下历史上下文：
+@doc/requirements/0.1.0.txt
+@doc/requirements/0.2.0.txt

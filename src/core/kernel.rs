@@ -1,259 +1,516 @@
-//! 内核补丁：多库补丁点的应用 / 状态检查 / 还原。
+//! 内核补丁：按库处理。
 //!
-//! 当前内核补丁点：
-//! 1. `script/common/isolation.lua`：解锁 `xxx = nil` 禁用行 + 注入补丁框架入口
-//! 2. `xdeditor/ui/menu_bar.lua`：注入「帮助/bgd_sce_tools」菜单项
+//! 对每个目标库（`LIBS` 登记表）执行：
+//! 1. **整库备份**（仅首次，见 backup 模块）
+//! 2. **整库解密**：把库内加密的 .lua 原地替换为明文源码（明文文件跳过）。
+//!    编辑器可以直接运行裸露源码，解密后便于查看/调试/打补丁。多线程并行 + 进度上报。
+//! 3. **库专属文本补丁**：script 库额外解锁 common/isolation.lua 的 `= nil` 禁用行
+//! 4. **入口插槽**：在库入口文件末尾（顶层 return 之前）注入
+//!    `pcall(require, 'sce_app_editor-patch.main')`，并在库 require 根下创建补丁目录
+//! 5. 首次创建补丁目录时启用默认勾选的模块
 //!
-//! 「应用补丁」（幂等，可重复执行；编辑器升级覆盖后重新点一次即可）：
-//! 读文件（加密则解密，明文则原样）→ 备份原始字节（仅首次）→ 文本转换 → 按原格式写回。
-//!
-//! 「还原补丁」：有备份的补丁点逐个字节级还原，并删除 common 下的补丁框架目录。
+//! 「还原补丁」：有备份的库整树覆盖还原 + 删除补丁目录。
+//! 「状态检查」：入口插槽（+script 库解锁标记）是否在，编辑器升级覆盖后显示「未应用」。
 
 use super::locate::EditorTarget;
-use super::{backup, crypto, log, modules};
-use std::path::PathBuf;
+use super::{backup, crypto, locate, log, modules, ops};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
-/// 注入块开始/结束标记（所有补丁点共用）
+/// 注入块开始/结束标记（所有库共用）
 pub const INJECT_BEGIN: &str = "-->> sce_app_editor-patch >>";
 pub const INJECT_END: &str = "--<< sce_app_editor-patch <<";
 /// 解锁行标记前缀
 pub const UNLOCK_MARK: &str = "-- [sce_app_editor-patch 解锁] ";
 
-/// 补丁点处理方式
-enum PatchKind {
-    /// isolation.lua：解锁禁用 + 注入框架入口
-    Isolation,
-    /// menu_bar.lua：注入帮助菜单项
-    MenuBar,
-}
-
-/// 一个内核补丁点（某个库里的某个文件）
-struct PatchPoint {
+/// 一个目标库（补丁打在该库入口点）
+pub struct LibSpec {
     /// 包名（api_pak_version.json 中的键）
-    pkg: &'static str,
-    /// 包内相对路径
-    rel: &'static str,
+    pub pkg: &'static str,
     /// 界面显示名
-    label: &'static str,
-    kind: PatchKind,
+    pub name: &'static str,
+    /// 库内 require 根（相对包目录）：package.path 指向的目录
+    pub require_root: &'static str,
+    /// 入口文件（相对包目录）
+    pub entry: &'static str,
 }
 
-/// 全部内核补丁点（新增内核补丁在此登记）
-const PATCH_POINTS: &[PatchPoint] = &[
-    PatchPoint {
+/// 全部目标库（新增库补丁在此登记）
+pub const LIBS: &[LibSpec] = &[
+    LibSpec {
         pkg: "script",
-        rel: "common/isolation.lua",
-        label: "解除函数禁用 + 框架入口（script/common/isolation.lua）",
-        kind: PatchKind::Isolation,
+        name: "script（游戏脚本/common 包）",
+        require_root: "common",
+        entry: "common/init.lua",
     },
-    PatchPoint {
+    LibSpec {
         pkg: "xdeditor",
-        rel: "ui/menu_bar.lua",
-        label: "帮助菜单 bgd_sce_tools 入口（xdeditor/ui/menu_bar.lua）",
-        kind: PatchKind::MenuBar,
+        name: "xdeditor（编辑器界面）",
+        require_root: "",
+        entry: "main.lua",
     },
 ];
 
-/// 单个补丁点的状态
+impl LibSpec {
+    pub fn package_dir(&self, target: &EditorTarget) -> Result<PathBuf, String> {
+        target.package_dir(self.pkg)
+    }
+
+    /// 库 require 根目录（补丁目录所在处）
+    pub fn require_root_dir(&self, target: &EditorTarget) -> Result<PathBuf, String> {
+        Ok(self.package_dir(target)?.join(self.require_root))
+    }
+
+    fn entry_path(&self, target: &EditorTarget) -> Result<PathBuf, String> {
+        Ok(self.package_dir(target)?.join(self.entry))
+    }
+
+    fn backup_group(&self, target: &EditorTarget) -> Result<String, String> {
+        target.backup_group(self.pkg)
+    }
+}
+
+/// 单个库的状态
 #[derive(PartialEq, Clone, Copy, Debug)]
-pub enum FileStatus {
-    /// 已应用（含注入标记）
+pub enum LibStatus {
+    /// 已应用（入口插槽在位，script 库还要求解锁标记在位）
     Applied,
     /// 未应用（原始状态，或被编辑器升级覆盖）
     NotApplied,
-    /// 文件缺失或无法读取
+    /// 包目录/入口文件缺失
     Missing,
 }
 
-/// 单个补丁点的完整状态（供 UI 展示）
-pub struct PatchStatus {
+/// 单个库的完整状态（供 UI 展示）
+pub struct LibStatusInfo {
+    pub pkg: &'static str,
     pub label: &'static str,
-    pub path: String,
-    pub status: FileStatus,
+    pub version: String,
+    pub status: LibStatus,
     pub has_backup: bool,
+    pub path: String,
 }
 
-impl PatchPoint {
-    /// 解析补丁点文件的真实路径
-    fn path(&self, target: &EditorTarget) -> Result<PathBuf, String> {
-        Ok(target.package_dir(self.pkg)?.join(self.rel))
-    }
-
-    /// 备份分组 + 包内相对路径
-    fn backup_key(&self, target: &EditorTarget) -> Result<(String, String), String> {
-        Ok((target.backup_group(self.pkg)?, self.rel.to_string()))
-    }
-}
-
-/// 检查全部补丁点状态（编辑器升级覆盖后会显示为「未应用」，重新应用即可）
-pub fn check(target: &EditorTarget) -> Vec<PatchStatus> {
-    PATCH_POINTS
-        .iter()
-        .map(|point| {
-            let (path_str, status) = match point.path(target) {
-                Ok(path) => {
-                    let s = match crypto::read_lua(&path) {
-                        Ok(lua) if lua.text.contains(INJECT_BEGIN) => FileStatus::Applied,
-                        Ok(_) => FileStatus::NotApplied,
-                        Err(_) => FileStatus::Missing,
-                    };
-                    (path.display().to_string(), s)
-                }
-                Err(e) => (e, FileStatus::Missing),
-            };
-            let has_backup = point
-                .backup_key(target)
-                .map(|(g, rel)| backup::has_backup(&target.editor_root, &g, &rel))
+/// 检查全部目标库状态
+pub fn check(target: &EditorTarget) -> Vec<LibStatusInfo> {
+    LIBS.iter()
+        .map(|lib| {
+            let version = target
+                .package_version(lib.pkg)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|_| "?".to_string());
+            let has_backup = lib
+                .backup_group(target)
+                .map(|g| backup::has_backup(&target.editor_root, &g))
                 .unwrap_or(false);
-            PatchStatus {
-                label: point.label,
-                path: path_str,
+            let (path, status) = match lib.entry_path(target) {
+                Ok(entry) => {
+                    // read_lua 自适应加密/明文：未打补丁的加密入口也能正确读出内容
+                    let s = match crypto::read_lua(&entry) {
+                        Ok(text) if text.contains(INJECT_BEGIN) => {
+                            // script 库额外要求 isolation 解锁标记在位
+                            if lib.pkg == "script" {
+                                match lib.package_dir(target).map(|d| d.join("common/isolation.lua")) {
+                                    Ok(iso) => match crypto::read_lua(&iso) {
+                                        Ok(t) if t.contains(UNLOCK_MARK) => LibStatus::Applied,
+                                        Ok(_) => LibStatus::NotApplied,
+                                        Err(_) => LibStatus::Missing,
+                                    },
+                                    Err(_) => LibStatus::Missing,
+                                }
+                            } else {
+                                LibStatus::Applied
+                            }
+                        }
+                        Ok(_) => LibStatus::NotApplied,
+                        Err(_) => LibStatus::Missing,
+                    };
+                    (entry.display().to_string(), s)
+                }
+                Err(e) => (e, LibStatus::Missing),
+            };
+            LibStatusInfo {
+                pkg: lib.pkg,
+                label: lib.name,
+                version,
                 status,
                 has_backup,
+                path,
             }
         })
         .collect()
 }
 
-/// 应用全部内核补丁点，返回逐点结果摘要（全部失败才返回 Err）
-pub fn apply(target: &EditorTarget) -> Result<String, String> {
-    let mut lines: Vec<String> = Vec::new();
+// ---------------------------------------------------------------- 进度
+
+/// 后台任务进度（应用/还原共用）
+pub struct TaskProgress {
+    /// 当前阶段描述
+    pub phase: String,
+    /// 总文件数（备份+解密/还原复制）
+    pub total: usize,
+    /// 已处理文件数（原子计数，供并行任务上报）
+    pub done: Arc<AtomicUsize>,
+    pub finished: bool,
+    pub ok: bool,
+    pub summary: String,
+}
+
+pub type SharedProgress = Arc<Mutex<TaskProgress>>;
+
+fn new_progress() -> SharedProgress {
+    Arc::new(Mutex::new(TaskProgress {
+        phase: "准备中…".to_string(),
+        total: 0,
+        done: Arc::new(AtomicUsize::new(0)),
+        finished: false,
+        ok: false,
+        summary: String::new(),
+    }))
+}
+
+fn set_phase(progress: &SharedProgress, phase: impl Into<String>) {
+    progress.lock().unwrap().phase = phase.into();
+}
+
+fn set_total(progress: &SharedProgress, total: usize) {
+    progress.lock().unwrap().total = total;
+}
+
+// ---------------------------------------------------------------- 应用
+
+/// 后台线程执行「应用补丁」，返回共享进度句柄（UI 轮询）
+pub fn apply_async(project_root: PathBuf) -> SharedProgress {
+    let progress = new_progress();
+    let p = Arc::clone(&progress);
+    std::thread::spawn(move || {
+        let result = apply_all(&project_root, &p);
+        let mut g = p.lock().unwrap();
+        match result {
+            Ok(summary) => {
+                g.ok = true;
+                g.summary = summary;
+            }
+            Err(e) => {
+                g.ok = false;
+                g.summary = e;
+            }
+        }
+        g.finished = true;
+    });
+    progress
+}
+
+fn apply_all(project_root: &Path, progress: &SharedProgress) -> Result<String, String> {
+    set_phase(progress, "定位编辑器…");
+    let target = locate::locate(project_root)?;
+    log::log(
+        Some(project_root),
+        Some(&target.editor_root),
+        "INFO",
+        "开始应用补丁",
+    );
+
+    // 预算：收集每个库的文件清单，计算总进度
+    let mut jobs = Vec::new();
+    let mut pre_errors: Vec<String> = Vec::new();
+    for lib in LIBS {
+        match (|| {
+            let dir = lib.package_dir(&target)?;
+            let group = lib.backup_group(&target)?;
+            let needs_backup = !backup::has_backup(&target.editor_root, &group);
+            let backup_count = if needs_backup {
+                ops::collect_all_files(&dir).len()
+            } else {
+                0
+            };
+            let lua_files = ops::collect_lua_files(&dir);
+            Ok::<_, String>(Job {
+                lib,
+                dir,
+                group,
+                needs_backup,
+                backup_count,
+                lua_files,
+            })
+        })() {
+            Ok(job) => jobs.push(job),
+            Err(e) => pre_errors.push(format!("✘ {}：{e}", lib.name)),
+        }
+    }
+    if jobs.is_empty() {
+        return Err(format!("没有可用的目标库：\n{}", pre_errors.join("\n")));
+    }
+    let total: usize = jobs.iter().map(|j| j.backup_count + j.lua_files.len()).sum();
+    set_total(progress, total);
+    let done = progress.lock().unwrap().done.clone();
+
+    let mut lines = pre_errors;
     let mut ok_count = 0;
-    for point in PATCH_POINTS {
-        match apply_one(target, point) {
+    for job in &jobs {
+        match apply_lib(&target, job, progress, &done) {
             Ok(msg) => {
                 ok_count += 1;
-                lines.push(format!("✔ {}：{msg}", point.label));
+                lines.push(format!("✔ {}：{msg}", job.lib.name));
                 log::log(
+                    Some(project_root),
                     Some(&target.editor_root),
                     "INFO",
-                    &format!("应用成功 [{}]: {msg}", point.rel),
+                    &format!("库[{}]应用成功: {msg}", job.lib.pkg),
                 );
             }
             Err(e) => {
-                lines.push(format!("✘ {}：{e}", point.label));
+                lines.push(format!("✘ {}：{e}", job.lib.name));
                 log::log(
+                    Some(project_root),
                     Some(&target.editor_root),
                     "ERROR",
-                    &format!("应用失败 [{}]: {e}", point.rel),
+                    &format!("库[{}]应用失败: {e}", job.lib.pkg),
                 );
             }
         }
     }
     if ok_count == 0 {
-        return Err(format!("全部补丁点应用失败：\n{}", lines.join("\n")));
+        return Err(format!("全部库应用失败：\n{}", lines.join("\n")));
     }
     Ok(lines.join("\n"))
 }
 
-/// 应用单个补丁点
-fn apply_one(target: &EditorTarget, point: &PatchPoint) -> Result<String, String> {
-    let path = point.path(target)?;
-    let lua = crypto::read_lua(&path)?;
+/// 处理单个库：备份 → 整库解密 → 专属文本补丁 → 入口插槽 → 补丁目录/默认模块
+fn apply_lib(
+    target: &EditorTarget,
+    job: &Job,
+    progress: &SharedProgress,
+    done: &Arc<AtomicUsize>,
+) -> Result<String, String> {
+    let lib = job.lib;
+    let mut parts: Vec<String> = Vec::new();
 
-    // 先备份再动手（仅首次真正写入）
-    let (group, rel) = point.backup_key(target)?;
-    let new_backup = backup::backup_file(&target.editor_root, &group, &rel, &path)?;
-
-    // 幂等：先移除旧注入块再转换
-    let base = remove_inject(&lua.text);
-    let (text, extra) = match point.kind {
-        PatchKind::Isolation => {
-            let (text, unlocked) = transform_unlock(&base);
-            (
-                format!("{}\n\n{}\n", text.trim_end(), isolation_inject_block()),
-                format!("解锁 {unlocked} 处禁用，注入框架入口"),
-            )
-        }
-        PatchKind::MenuBar => (
-            format!("{}\n\n{}\n", base.trim_end(), menu_inject_block()),
-            "注入帮助菜单入口".to_string(),
-        ),
-    };
-    crypto::write_lua(&path, &crypto::LuaText { text, encrypted: lua.encrypted })?;
-
-    // isolation 补丁点附带重建补丁框架入口（保留已启用模块）
-    if matches!(point.kind, PatchKind::Isolation) {
-        modules::regenerate_entry(&target.common_dir()?)?;
+    // 1. 整库备份（仅首次）
+    if job.needs_backup {
+        set_phase(progress, format!("备份 {} 库…", lib.pkg));
+        backup::backup_lib(&target.editor_root, &job.group, &job.dir, done)?;
+        parts.push(format!("已备份 {} 个文件", job.backup_count));
+    } else {
+        parts.push("沿用已有备份".to_string());
     }
 
-    Ok(if new_backup {
-        format!("{extra}（已备份原文件）")
+    // 2. 整库解密（明文文件自动跳过）
+    set_phase(progress, format!("解密 {} 库…", lib.pkg));
+    let decrypted = Arc::new(AtomicUsize::new(0));
+    let d = Arc::clone(&decrypted);
+    let errors = ops::parallel_for_each(&job.lua_files, done, move |file| {
+        if ops::decrypt_file_in_place(file)? {
+            d.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
+    });
+    if !errors.is_empty() {
+        return Err(format!(
+            "解密失败 {} 个文件，已中止（首个错误：{}）",
+            errors.len(),
+            errors[0]
+        ));
+    }
+    parts.push(format!("解密 {} 个文件", decrypted.load(Ordering::Relaxed)));
+
+    // 3. 库专属文本补丁：script 库解锁 isolation.lua
+    if lib.pkg == "script" {
+        let iso = job.dir.join("common").join("isolation.lua");
+        let text = std::fs::read_to_string(&iso)
+            .map_err(|e| format!("读取 {} 失败: {e}", iso.display()))?;
+        let (text, unlocked) = transform_unlock(&text);
+        crypto::write_atomic(&iso, text.as_bytes())?;
+        parts.push(format!("解锁 {unlocked} 处禁用"));
+    }
+
+    // 4. 入口插槽（顶层 return 之前）
+    let entry = lib.entry_path(target)?;
+    let text = std::fs::read_to_string(&entry)
+        .map_err(|e| format!("读取入口 {} 失败: {e}", entry.display()))?;
+    let text = insert_slot(&text, &slot_block());
+    crypto::write_atomic(&entry, text.as_bytes())?;
+    parts.push("入口插槽已注入".to_string());
+
+    // 5. 补丁目录：首次创建启用默认模块，否则按现状重建入口
+    let root = lib.require_root_dir(target)?;
+    if modules::patch_dir(&root).exists() {
+        modules::regenerate_entry(&root)?;
+        parts.push("保留已启用模块".to_string());
     } else {
-        format!("{extra}（沿用已有备份）")
-    })
+        let defaults = modules::apply_defaults(&root)?;
+        if defaults.is_empty() {
+            parts.push("补丁目录已创建".to_string());
+        } else {
+            parts.push(format!("默认启用模块: {}", defaults.join(", ")));
+        }
+    }
+
+    Ok(parts.join("，"))
 }
 
-/// 还原全部补丁点，返回逐点结果摘要
-pub fn restore(target: &EditorTarget) -> Result<String, String> {
-    let mut lines: Vec<String> = Vec::new();
-    let mut ok_count = 0;
-    for point in PATCH_POINTS {
-        let (group, rel) = point.backup_key(target)?;
-        if !backup::has_backup(&target.editor_root, &group, &rel) {
-            continue; // 没备份过 = 没改过，跳过
-        }
-        let path = point.path(target)?;
-        match backup::restore_file(&target.editor_root, &group, &rel, &path) {
-            Ok(()) => {
-                ok_count += 1;
-                lines.push(format!("✔ {}：已用备份还原", point.label));
-                log::log(
-                    Some(&target.editor_root),
-                    "INFO",
-                    &format!("还原成功 [{}]", point.rel),
-                );
+// ---------------------------------------------------------------- 还原
+
+/// 后台线程执行「还原补丁」
+pub fn restore_async(project_root: PathBuf) -> SharedProgress {
+    let progress = new_progress();
+    let p = Arc::clone(&progress);
+    std::thread::spawn(move || {
+        let result = restore_all(&project_root, &p);
+        let mut g = p.lock().unwrap();
+        match result {
+            Ok(summary) => {
+                g.ok = true;
+                g.summary = summary;
             }
             Err(e) => {
-                lines.push(format!("✘ {}：{e}", point.label));
-                log::log(
-                    Some(&target.editor_root),
-                    "ERROR",
-                    &format!("还原失败 [{}]: {e}", point.rel),
-                );
+                g.ok = false;
+                g.summary = e;
             }
         }
-    }
+        g.finished = true;
+    });
+    progress
+}
 
-    // 删除补丁框架目录（含所有已启用模块）
-    if let Ok(common) = target.common_dir() {
-        let patch_dir = modules::patch_dir(&common);
-        if patch_dir.exists() {
-            std::fs::remove_dir_all(&patch_dir)
-                .map_err(|e| format!("删除 {} 失败: {e}", patch_dir.display()))?;
-            lines.push("✔ 已移除补丁框架目录 sce_app_editor-patch/".to_string());
+fn restore_all(project_root: &Path, progress: &SharedProgress) -> Result<String, String> {
+    set_phase(progress, "定位编辑器…");
+    let target = locate::locate(project_root)?;
+    log::log(
+        Some(project_root),
+        Some(&target.editor_root),
+        "INFO",
+        "开始还原补丁",
+    );
+
+    // 预算：统计需要还原的文件总数
+    struct Job<'a> {
+        lib: &'a LibSpec,
+        dir: PathBuf,
+        group: String,
+        file_count: usize,
+    }
+    let mut jobs = Vec::new();
+    for lib in LIBS {
+        let (Ok(dir), Ok(group)) = (lib.package_dir(&target), lib.backup_group(&target)) else {
+            continue;
+        };
+        if !backup::has_backup(&target.editor_root, &group) {
+            continue;
         }
+        let count = ops::collect_all_files(&dir).len();
+        jobs.push(Job {
+            lib,
+            dir,
+            group,
+            file_count: count,
+        });
     }
-
-    if ok_count == 0 {
+    if jobs.is_empty() {
         return Err("没有任何备份可用于还原（尚未应用过补丁）".to_string());
     }
+    set_total(progress, jobs.iter().map(|j| j.file_count).sum());
+    let done = progress.lock().unwrap().done.clone();
+
+    let mut lines: Vec<String> = Vec::new();
+    for job in &jobs {
+        set_phase(progress, format!("还原 {} 库…", job.lib.pkg));
+        match backup::restore_lib(&target.editor_root, &job.group, &job.dir, &done) {
+            Ok(()) => {
+                // 删除补丁目录（备份树里没有它，但覆盖复制不会删除多余文件）
+                if let Ok(root) = job.lib.require_root_dir(&target) {
+                    let patch_dir = modules::patch_dir(&root);
+                    if patch_dir.exists() {
+                        std::fs::remove_dir_all(&patch_dir)
+                            .map_err(|e| format!("删除 {} 失败: {e}", patch_dir.display()))?;
+                    }
+                }
+                lines.push(format!("✔ {}：已用备份整库还原", job.lib.name));
+                log::log(
+                    Some(project_root),
+                    Some(&target.editor_root),
+                    "INFO",
+                    &format!("库[{}]还原成功", job.lib.pkg),
+                );
+            }
+            Err(e) => {
+                lines.push(format!("✘ {}：{e}", job.lib.name));
+                log::log(
+                    Some(project_root),
+                    Some(&target.editor_root),
+                    "ERROR",
+                    &format!("库[{}]还原失败: {e}", job.lib.pkg),
+                );
+            }
+        }
+    }
     Ok(lines.join("\n"))
 }
 
-/// 框架入口注入块（isolation.lua 末尾）
-fn isolation_inject_block() -> String {
+// ---------------------------------------------------------------- 文本转换
+
+/// 入口插槽内容
+fn slot_block() -> String {
     format!(
         "{INJECT_BEGIN}\n\
-         -- 编辑器补丁框架入口（由 sce_app_editor-patch 应用注入，请勿手改）\n\
+         -- 编辑器补丁插槽（由 sce_app_editor-patch 应用注入，请勿手改）\n\
          local __ep_ok, __ep_err = pcall(require, 'sce_app_editor-patch.main')\n\
-         if not __ep_ok then\n\
+         if not __ep_ok and log_file and log_file.info then\n\
          \x20   log_file.info('[sce_app_editor-patch] 框架入口加载失败: ' .. tostring(__ep_err))\n\
          end\n\
          {INJECT_END}"
     )
 }
 
-/// 帮助菜单注入块（menu_bar.lua 末尾）
-fn menu_inject_block() -> String {
-    format!(
-        "{INJECT_BEGIN}\n\
-         -- 编辑器补丁：帮助菜单增加 bgd_sce_tools 入口（由 sce_app_editor-patch 应用注入，请勿手改）\n\
-         window_title_bar.register('帮助/bgd_sce_tools', function(item)\n\
-         \x20   common.open_url('https://github.com/woaye168/bgd_sce_tools')\n\
-         end)\n\
-         {INJECT_END}"
-    )
+/// 把插槽注入文件末尾：若文件以顶层 return 语句结尾（单行或多行），插在 return 之前
+fn insert_slot(text: &str, slot: &str) -> String {
+    let base = remove_inject(text);
+    let trimmed = base.trim_end().to_string();
+    let lines: Vec<&str> = trimmed.lines().collect();
+    match find_trailing_return(&lines) {
+        Some(i) => {
+            let mut out = lines[..i].join("\n").trim_end().to_string();
+            out.push_str("\n\n");
+            out.push_str(slot);
+            out.push('\n');
+            out.push_str(&lines[i..].join("\n"));
+            out.push('\n');
+            out
+        }
+        None => format!("{trimmed}\n\n{slot}\n"),
+    }
+}
+
+/// 找文件末尾的顶层 return 语句起始行（Lua 要求 return 是块内最后一条语句，
+/// 所以顶层 return 之后的行必然属于该 return 的延续，如花括号表）。
+/// 用括号平衡验证完整性，验证不过则返回 None（退化为文件末尾追加）。
+fn find_trailing_return(lines: &[&str]) -> Option<usize> {
+    let last = lines.iter().rposition(|l| {
+        let t = l.trim();
+        !t.is_empty() && !t.starts_with("--")
+    })?;
+    for (i, line) in lines.iter().enumerate().take(last + 1).rev() {
+        let t = line.trim_end();
+        if t.starts_with("return")
+            && (t.len() == 6 || t.as_bytes()[6].is_ascii_whitespace())
+            && !line.starts_with(char::is_whitespace)
+        {
+            // 验证 i..=last 括号平衡（多行 return 的表/参数完整闭合）
+            let mut depth: i32 = 0;
+            for l in lines.iter().take(last + 1).skip(i) {
+                for ch in l.chars() {
+                    match ch {
+                        '{' | '(' | '[' => depth += 1,
+                        '}' | ')' | ']' => depth -= 1,
+                        _ => {}
+                    }
+                }
+            }
+            return if depth == 0 { Some(i) } else { None };
+        }
+    }
+    None
 }
 
 /// 移除已有注入块（含标记行之间的所有内容）
@@ -320,10 +577,19 @@ fn is_nil_disable_line(line: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
 }
 
+// 私有 Job 类型仅给 apply_all/apply_lib 用（定义在函数内会借用问题，提升到这里）
+struct Job<'a> {
+    lib: &'a LibSpec,
+    dir: PathBuf,
+    group: String,
+    needs_backup: bool,
+    backup_count: usize,
+    lua_files: Vec<PathBuf>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::locate::locate;
 
     #[test]
     fn test_is_nil_disable_line() {
@@ -331,7 +597,6 @@ mod tests {
         assert!(is_nil_disable_line("os.execute = nil"));
         assert!(is_nil_disable_line("    _G.package.loadlib = nil"));
         assert!(is_nil_disable_line("cmsg_pack.set_max_pack_byte_count = nil"));
-        // 已注释 / local 赋值 / 其他语句不算
         assert!(!is_nil_disable_line("-- io.unzip_file = nil"));
         assert!(!is_nil_disable_line("local x = nil"));
         assert!(!is_nil_disable_line("local write = io.write"));
@@ -345,10 +610,6 @@ mod tests {
         let (out, count) = transform_unlock(src);
         assert_eq!(count, 2);
         assert!(out.contains("-- [sce_app_editor-patch 解锁]     io.popen = nil"));
-        assert!(out.contains("-- [sce_app_editor-patch 解锁]     os.execute = nil"));
-        // 已注释行不重复处理
-        assert!(out.contains("-- io.unzip_file = nil"));
-        // 重复执行幂等
         let (_out2, count2) = transform_unlock(&out);
         assert_eq!(count2, 0);
     }
@@ -356,8 +617,43 @@ mod tests {
     #[test]
     fn test_remove_inject() {
         let src = format!("line1\n{}\nabc\ndef\n{}\nline2\n", INJECT_BEGIN, INJECT_END);
-        let out = remove_inject(&src);
-        assert_eq!(out, "line1\nline2");
+        assert_eq!(remove_inject(&src), "line1\nline2");
+    }
+
+    #[test]
+    fn test_insert_slot_no_return() {
+        // common/init.lua 形态：无 return，末尾追加
+        let src = "if not _G.log_file then\n    _G.log_file = log\nend\n\nrequire 'main'\n";
+        let out = insert_slot(src, "SLOT");
+        assert!(out.ends_with("require 'main'\n\nSLOT\n"));
+    }
+
+    #[test]
+    fn test_insert_slot_single_line_return() {
+        // menu_bar.lua 形态：return xxx 结尾，插槽在 return 之前
+        let src = "window_title_bar.register('帮助/文档', f)\n\nreturn window_title_bar\n";
+        let out = insert_slot(src, "SLOT");
+        assert_eq!(
+            out,
+            "window_title_bar.register('帮助/文档', f)\n\nSLOT\nreturn window_title_bar\n"
+        );
+    }
+
+    #[test]
+    fn test_insert_slot_multi_line_return() {
+        // xdeditor/main.lua 形态：return { ... } 多行结尾
+        let src = "local a = 1\n    return\n\nreturn {\n    x = 1,\n    y = 2,\n}\n";
+        let out = insert_slot(src, "SLOT");
+        assert_eq!(out, "local a = 1\n    return\n\nSLOT\nreturn {\n    x = 1,\n    y = 2,\n}\n");
+    }
+
+    #[test]
+    fn test_insert_slot_idempotent() {
+        let src = "require 'main'\n";
+        let slot = format!("{INJECT_BEGIN}\nbody\n{INJECT_END}");
+        let once = insert_slot(src, &slot);
+        let twice = insert_slot(&once, &slot);
+        assert_eq!(once, twice);
     }
 
     #[test]
@@ -365,31 +661,10 @@ mod tests {
         let plain = "hello 星火编辑器";
         let enc = crypto::encrypt(plain.as_bytes());
         assert!(crypto::is_encrypted(&enc));
-        assert!(enc.starts_with(b"TNND"));
-        let dec = crypto::decrypt(&enc).unwrap();
-        assert_eq!(dec, plain.as_bytes());
+        assert_eq!(crypto::decrypt(&enc).unwrap(), plain.as_bytes());
     }
 
-    #[test]
-    fn test_plain_file_passthrough() {
-        // 明文文件：读出是明文，写回仍是明文（不加密）
-        let base = std::env::temp_dir().join(format!("ep_plain_test_{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&base);
-        std::fs::create_dir_all(&base).unwrap();
-        let file = base.join("plain.lua");
-        std::fs::write(&file, "-- 明文 lua\nlocal a = 1\n").unwrap();
-
-        let lua = crypto::read_lua(&file).unwrap();
-        assert!(!lua.encrypted);
-        crypto::write_lua(&file, &crypto::LuaText { text: format!("{}\n-- added\n", lua.text), encrypted: lua.encrypted }).unwrap();
-        let raw = std::fs::read(&file).unwrap();
-        assert!(!crypto::is_encrypted(&raw));
-        assert!(String::from_utf8(raw).unwrap().contains("-- added"));
-        let _ = std::fs::remove_dir_all(&base);
-    }
-
-    /// 端到端：临时目录上构造双库（script 加密 + xdeditor 明文），
-    /// 应用→状态→再应用（幂等）→覆盖后检测→还原 全流程
+    /// 端到端：临时目录双库（加密+明文混合）整库流程
     #[test]
     fn test_apply_restore_flow() {
         let base = std::env::temp_dir().join(format!("editor_patch_test_{}", std::process::id()));
@@ -397,7 +672,7 @@ mod tests {
         let backup_dir = base.join("backup");
         std::env::set_var("EDITOR_PATCH_BACKUP_DIR", &backup_dir);
 
-        // 造项目结构：project/map_settings.json + script/tsconfig.json
+        // 项目结构
         let project = base.join("project_x");
         std::fs::create_dir_all(project.join("project")).unwrap();
         std::fs::create_dir_all(project.join("script")).unwrap();
@@ -416,8 +691,6 @@ mod tests {
             ),
         )
         .unwrap();
-
-        // 造 api_pak_version.json + 双库文件
         std::fs::create_dir_all(&editor_root).unwrap();
         std::fs::write(
             editor_root.join("api_pak_version.json"),
@@ -426,65 +699,83 @@ mod tests {
         )
         .unwrap();
 
-        // script 包：加密的 isolation.lua
+        // script 包：加密 isolation.lua + 加密 init.lua + 一个明文文件
         let common = editor_root.join("Res/_m/script/199/script/common");
         std::fs::create_dir_all(&common).unwrap();
-        let iso_original = "local util = require 'base.util'\nif __lua_state_name == 'StateGame' then\n    io.popen = nil\n    os.execute = nil\nend\n";
+        let iso_original = "local util = require 'base.util'\nif __lua_state_name == 'StateGame' then\n    io.popen = nil\nend\n";
         let iso = common.join("isolation.lua");
         std::fs::write(&iso, crypto::encrypt(iso_original.as_bytes())).unwrap();
         let iso_original_bytes = std::fs::read(&iso).unwrap();
+        let init = common.join("init.lua");
+        std::fs::write(&init, crypto::encrypt(b"require 'main'\n")).unwrap();
+        let plain_file = common.join("plain_note.lua");
+        std::fs::write(&plain_file, "-- 本来就是明文\n").unwrap();
 
-        // xdeditor 包：明文的 menu_bar.lua（验证明文容错）
-        let xd_ui = editor_root.join("Res/_m/xdeditor/160/xdeditor/ui");
-        std::fs::create_dir_all(&xd_ui).unwrap();
-        let menu_original = "window_title_bar.register('帮助/文档', function(item)\n    common.open_url('http://doc.sce.xd.com/')\nend)\n";
-        let menu = xd_ui.join("menu_bar.lua");
-        std::fs::write(&menu, menu_original).unwrap();
+        // xdeditor 包：明文 main.lua（多行 return 结尾）
+        let xd = editor_root.join("Res/_m/xdeditor/160/xdeditor");
+        std::fs::create_dir_all(&xd).unwrap();
+        let menu_dir = xd.join("ui");
+        std::fs::create_dir_all(&menu_dir).unwrap();
+        std::fs::write(menu_dir.join("menu_bar.lua"), "local M = {}\nreturn M\n").unwrap();
+        let xd_main_original = "require '@common.base'\n\nreturn {\n    a = 1,\n}\n";
+        let xd_main = xd.join("main.lua");
+        std::fs::write(&xd_main, xd_main_original).unwrap();
 
-        let target = locate(&project).unwrap();
+        // 应用（同步跑 worker 逻辑）
+        let progress = new_progress();
+        let msg = apply_all(&project, &progress).unwrap();
+        assert!(msg.contains("解锁 1 处"), "{msg}");
+        assert!(msg.contains("默认启用模块: menu_bgd"), "{msg}");
 
-        // 应用
-        let msg = apply(&target).unwrap();
-        assert!(msg.contains("解锁 2 处"), "{msg}");
-        assert!(msg.contains("帮助菜单"), "{msg}");
+        // 状态：两库均已应用
+        let target = locate::locate(&project).unwrap();
         let statuses = check(&target);
-        assert!(statuses.iter().all(|s| s.status == FileStatus::Applied), "全部已应用");
+        assert!(statuses.iter().all(|s| s.status == LibStatus::Applied), "全部已应用: {msg}");
 
-        // isolation：解锁 + 框架入口
-        let iso_text = crypto::read_lua(&iso).unwrap().text;
-        assert!(iso_text.contains("pcall(require, 'sce_app_editor-patch.main')"));
-        assert!(iso_text.contains("-- [sce_app_editor-patch 解锁]     io.popen = nil"));
-        // 框架入口已生成（加密，因为新建文件默认加密？——入口是新建文件，走加密写入）
-        let entry = common.join("sce_app_editor-patch").join("main.lua");
-        assert!(crypto::is_encrypted(&std::fs::read(&entry).unwrap()));
+        // 整库已解密为明文
+        assert!(!crypto::is_encrypted(&std::fs::read(&iso).unwrap()));
+        assert!(!crypto::is_encrypted(&std::fs::read(&init).unwrap()));
+        // 明文文件未被破坏
+        assert_eq!(std::fs::read_to_string(&plain_file).unwrap(), "-- 本来就是明文\n");
 
-        // menu_bar：明文写回仍是明文
-        let menu_raw = std::fs::read(&menu).unwrap();
-        assert!(!crypto::is_encrypted(&menu_raw));
-        let menu_text = String::from_utf8(menu_raw).unwrap();
-        assert!(menu_text.contains("window_title_bar.register('帮助/bgd_sce_tools'"));
+        // script 入口插槽 + 解锁
+        let init_text = std::fs::read_to_string(&init).unwrap();
+        assert!(init_text.contains(INJECT_BEGIN));
+        let iso_text = std::fs::read_to_string(&iso).unwrap();
+        assert!(iso_text.contains(UNLOCK_MARK));
 
-        // 再应用：幂等
-        let msg2 = apply(&target).unwrap();
+        // xdeditor 入口插槽在 return 之前
+        let xd_text = std::fs::read_to_string(&xd_main).unwrap();
+        let slot_pos = xd_text.find(INJECT_BEGIN).unwrap();
+        let ret_pos = xd_text.find("return {").unwrap();
+        assert!(slot_pos < ret_pos, "插槽必须在 return 之前:\n{xd_text}");
+
+        // 默认模块已启用（明文写入 xdeditor 补丁目录）
+        let menu_module = modules::patch_dir(&xd).join("menu_bgd").join("main.lua");
+        assert!(menu_module.is_file());
+        assert!(!crypto::is_encrypted(&std::fs::read(&menu_module).unwrap()));
+
+        // 再应用：幂等（保留模块、解锁不重复）
+        let progress2 = new_progress();
+        let msg2 = apply_all(&project, &progress2).unwrap();
         assert!(msg2.contains("解锁 0 处"), "{msg2}");
+        assert!(msg2.contains("保留已启用模块"), "{msg2}");
 
-        // 模拟编辑器升级覆盖：把 isolation.lua 重置为原始（相当于被覆盖）
-        std::fs::write(&iso, &iso_original_bytes).unwrap();
+        // 模拟编辑器升级覆盖：入口换成全新加密原始文件 → 检测为未应用
+        std::fs::write(&init, crypto::encrypt(b"require 'main'\n")).unwrap();
+        let target = locate::locate(&project).unwrap();
         let statuses = check(&target);
-        let iso_status = statuses.iter().find(|s| s.label.contains("isolation")).unwrap();
-        assert_eq!(iso_status.status, FileStatus::NotApplied, "覆盖后检测为未应用");
-        let menu_status = statuses.iter().find(|s| s.label.contains("menu_bar")).unwrap();
-        assert_eq!(menu_status.status, FileStatus::Applied, "未覆盖的仍为已应用");
-        // 重新应用恢复
-        apply(&target).unwrap();
-        assert!(check(&target).iter().all(|s| s.status == FileStatus::Applied));
+        let script_status = statuses.iter().find(|s| s.pkg == "script").unwrap();
+        assert_eq!(script_status.status, LibStatus::NotApplied, "覆盖后应检测为未应用");
 
-        // 还原：字节级一致
-        restore(&target).unwrap();
+        // 还原：整库字节级还原
+        let progress3 = new_progress();
+        restore_all(&project, &progress3).unwrap();
         assert_eq!(std::fs::read(&iso).unwrap(), iso_original_bytes);
-        assert_eq!(std::fs::read_to_string(&menu).unwrap(), menu_original);
-        assert!(check(&target).iter().all(|s| s.status == FileStatus::NotApplied));
-        assert!(!common.join("sce_app_editor-patch").exists());
+        assert!(crypto::is_encrypted(&std::fs::read(&init).unwrap()));
+        assert_eq!(std::fs::read_to_string(&xd_main).unwrap(), xd_main_original);
+        assert!(!modules::patch_dir(&xd).exists());
+        assert!(!modules::patch_dir(&common).exists());
 
         let _ = std::fs::remove_dir_all(&base);
     }

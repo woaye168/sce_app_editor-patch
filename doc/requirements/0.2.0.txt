@@ -1,0 +1,9 @@
+1）忘了说：星火编辑器源码中，不是每个源文件都加密的，所以这里你不要全部都执行解密反而可能出错。你检查下相关逻辑
+2）星火编辑器有可能升级覆盖掉我们的「应用补丁」，所以我们需要有机制和功能能够检查当前的「补丁」状态，并且在我们的「应用补丁」被覆盖时，能够重新应用
+3）对了检查下现在的 bgd_sce_tools的应用中心机制，是否有应用更新流程和相关功能
+4）像 sce_app_visual-injector  应用在执行应用的动作会产生日志的，咱们新的应用 sce_app_editor-patch ，似乎不会记录日志。确认下，没有则补上。
+5）sce_app_editor-patch，增加一个新的补丁，解除项目的文件变化监听，因为如果不解除在改部分文件的时候会弹出烦人的重载提示，特别是AGENT开发很打断流程。（相关的方法是：io.remove_watch(path)、io.add_watch(path)，path你可以在「isolation.lua」里看到有项目的路径）
+6）备份的文件最好放到「D:\sce_online\update\editor-pd.spark.xd.com」路径下。（不要硬编码路径），前面有获取的。这样不会因为工具应用的问题丢失备份数据。
+7）前面修改补丁的是「common」，实际上我们也能够补丁其他的库，比如我想改界面就需要补丁「xdeditor」库，像「common」库一样，我们应该先从「api_pak_version.json」拿到 xdeditor 库的版本号，例如： "13":{"xdeditor":160}  ，然后我们就能找到xdeditor在本机的真实路径了，例如「D:\sce_online\update\editor-pd.spark.xd.com\res\_m\xdeditor\160\xdeditor」，比如现在应用补丁的时候，加个需求：在编辑器中加上一个顶部菜单 帮助下面增加一个子菜单「bgd_sce_tools」，点这个子菜单跳转到 bgd_sce_tools 的github 仓库地址。这个怎么实现呢？ 我在这里直接可以告诉你，直接修改 ui/menu_bar.lua  ，剩下的，你解密此文件后，读取源代码，自然而然就知道怎么加了。
+
+新的 需求可以补丁编辑器本身「xdeditor」了。结合「common」，你得思考一下现有的备份机制是否是支持多库的。看看需不需要调整架构。后面可能也需要补丁其他库。

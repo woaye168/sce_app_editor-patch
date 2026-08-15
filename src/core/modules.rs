@@ -1,64 +1,80 @@
-//! 补丁模块管理。
+//! 补丁模块管理（按库分组）。
 //!
-//! 内置补丁模块以 `patches/<id>/` 目录形式存放在源码仓库，编译期 `include_str!` 嵌入 exe，
-//! 保证单文件分发。启用模块 = 把模块文件加密写入编辑器 common 包下的框架目录：
+//! 每个补丁模块归属于一个库（`pkg`），启用后写入该库 require 根下的补丁目录：
 //!
 //! ```text
-//! <common>/sce_app_editor-patch/
+//! <库require根>/sce_app_editor-patch/
 //!   main.lua            # 框架入口（AUTO-GENERATED，按启用列表重建）
 //!   <模块id>/main.lua   # 模块文件
 //! ```
 //!
-//! 启用状态即文件系统状态（扫描框架目录下的模块目录），无需额外状态文件。
-//! 内核补丁注入的 `require 'sce_app_editor-patch.main'` 会加载该入口。
-//! 框架文件是本应用新建的（非编辑器原文件），一律加密写入（与包内其他文件一致）。
+//! - 库经内核补丁整库解密后为裸露源码，框架/模块文件也写明文（便于查看调试）。
+//! - **启用状态即文件系统状态**：模块目录存在即启用，无额外状态文件。
+//! - 模块可声明 `default_enabled`：内核补丁首次创建补丁目录时自动启用。
+//! - 新增内置模块：`patches/<pkg>/<id>/` 下放 lua 文件 + `builtin_modules()` 注册。
 
 use super::crypto;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// 注入到 common 包下的框架目录名（与本仓库同名）
+/// 注入到库 require 根下的补丁目录名（与本仓库同名）
 pub const PATCH_DIR_NAME: &str = "sce_app_editor-patch";
 
 /// 一个内置补丁模块
 pub struct PatchModule {
     /// 模块 id（目录名，同时是 require 路径的一段）
     pub id: &'static str,
+    /// 所属库（api_pak_version.json 包名，如 script / xdeditor）
+    pub pkg: &'static str,
     /// 显示名（中文）
     pub name: &'static str,
     /// 功能描述
     pub description: &'static str,
+    /// 默认勾选（内核补丁首次创建补丁目录时自动启用）
+    pub default_enabled: bool,
     /// 模块文件：(模块目录内相对路径, 文件内容)
     pub files: &'static [(&'static str, &'static str)],
 }
 
-/// 全部内置补丁模块（新增模块在此注册 + patches/ 下放文件）
+/// 全部内置补丁模块（新增模块在此注册 + patches/<pkg>/<id>/ 下放文件）
 pub fn builtin_modules() -> Vec<PatchModule> {
     vec![
         PatchModule {
             id: "hello",
+            pkg: "script",
             name: "示例补丁",
             description: "验证补丁链路：加载时输出日志，暴露全局标记 __EDITOR_PATCH__，并报告关键函数的解禁状态。",
-            files: &[("main.lua", include_str!("../../patches/hello/main.lua"))],
+            default_enabled: false,
+            files: &[("main.lua", include_str!("../../patches/script/hello/main.lua"))],
         },
         PatchModule {
             id: "unwatch",
+            pkg: "script",
             name: "解除项目文件监听",
             description: "移除并拦截编辑器对项目目录的文件变更监听（io.remove_watch / io.add_watch），外部修改项目文件时不再弹出重载提示。",
-            files: &[("main.lua", include_str!("../../patches/unwatch/main.lua"))],
+            default_enabled: false,
+            files: &[("main.lua", include_str!("../../patches/script/unwatch/main.lua"))],
+        },
+        PatchModule {
+            id: "menu_bgd",
+            pkg: "xdeditor",
+            name: "帮助菜单 bgd_sce_tools 入口",
+            description: "编辑器顶部菜单「帮助」下增加「bgd_sce_tools」子菜单，点击打开 bgd_sce_tools 的 GitHub 仓库。",
+            default_enabled: true,
+            files: &[("main.lua", include_str!("../../patches/xdeditor/menu_bgd/main.lua"))],
         },
     ]
 }
 
-/// 框架目录：<common>/sce_app_editor-patch
-pub fn patch_dir(common_dir: &Path) -> PathBuf {
-    common_dir.join(PATCH_DIR_NAME)
+/// 指定库的补丁目录：<库require根>/sce_app_editor-patch
+pub fn patch_dir(lib_require_root: &Path) -> PathBuf {
+    lib_require_root.join(PATCH_DIR_NAME)
 }
 
-/// 当前已启用的模块 id 列表（扫描框架目录下含 main.lua 的子目录）
-pub fn enabled_modules(common_dir: &Path) -> Vec<String> {
+/// 当前已启用的模块 id 列表（扫描补丁目录下含 main.lua 的子目录）
+pub fn enabled_modules(lib_require_root: &Path) -> Vec<String> {
     let mut ids = Vec::new();
-    let dir = patch_dir(common_dir);
+    let dir = patch_dir(lib_require_root);
     if let Ok(entries) = fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -73,29 +89,49 @@ pub fn enabled_modules(common_dir: &Path) -> Vec<String> {
     ids
 }
 
-/// 启用/关闭一个模块，并重建框架入口
-pub fn set_module(common_dir: &Path, module: &PatchModule, enable: bool) -> Result<(), String> {
-    let dir = patch_dir(common_dir).join(module.id);
+/// 启用/关闭一个模块，并重建该库框架入口
+pub fn set_module(lib_require_root: &Path, module: &PatchModule, enable: bool) -> Result<(), String> {
+    let dir = patch_dir(lib_require_root).join(module.id);
     if enable {
-        for (rel, content) in module.files {
-            let path = dir.join(rel);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-            }
-            write_framework_lua(&path, content)?;
-        }
+        write_module_files(&dir, module)?;
     } else if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("删除 {} 失败: {e}", dir.display()))?;
     }
-    regenerate_entry(common_dir)
+    regenerate_entry(lib_require_root)
 }
 
-/// 按当前启用列表重建框架入口 main.lua（AUTO-GENERATED，加密写入）
-pub fn regenerate_entry(common_dir: &Path) -> Result<(), String> {
-    let dir = patch_dir(common_dir);
+/// 写出一个模块的全部文件（明文）
+fn write_module_files(dir: &Path, module: &PatchModule) -> Result<(), String> {
+    for (rel, content) in module.files {
+        let path = dir.join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+        crypto::write_atomic(&path, content.as_bytes())?;
+    }
+    Ok(())
+}
+
+/// 启用所有默认勾选的模块（内核补丁首次创建补丁目录时调用）
+pub fn apply_defaults(lib_require_root: &Path) -> Result<Vec<String>, String> {
+    let mut applied = Vec::new();
+    for module in builtin_modules().iter().filter(|m| m.default_enabled) {
+        let dir = patch_dir(lib_require_root).join(module.id);
+        if !dir.exists() {
+            write_module_files(&dir, module)?;
+            applied.push(module.id.to_string());
+        }
+    }
+    regenerate_entry(lib_require_root)?;
+    Ok(applied)
+}
+
+/// 按当前启用列表重建框架入口 main.lua（AUTO-GENERATED，明文写入）
+pub fn regenerate_entry(lib_require_root: &Path) -> Result<(), String> {
+    let dir = patch_dir(lib_require_root);
     fs::create_dir_all(&dir).map_err(|e| format!("创建 {} 失败: {e}", dir.display()))?;
 
-    let ids = enabled_modules(common_dir);
+    let ids = enabled_modules(lib_require_root);
     let mut text = String::from(
         "-- AUTO-GENERATED by sce_app_editor-patch（编辑器补丁），请勿手改\n\
          -- 本文件按已启用的补丁模块列表重建\n\
@@ -108,22 +144,11 @@ pub fn regenerate_entry(common_dir: &Path) -> Result<(), String> {
     text.push_str(
         "for _, id in ipairs(modules) do\n\
          \x20   local ok, err = pcall(require, 'sce_app_editor-patch.' .. id .. '.main')\n\
-         \x20   if not ok then\n\
+         \x20   if not ok and log_file and log_file.info then\n\
          \x20       log_file.info('[sce_app_editor-patch] 模块[' .. id .. ']加载失败: ' .. tostring(err))\n\
          \x20   end\n\
          end\n",
     );
 
-    write_framework_lua(&dir.join("main.lua"), &text)
-}
-
-/// 框架文件一律加密写入（与 common 包内其他文件一致）
-fn write_framework_lua(path: &Path, text: &str) -> Result<(), String> {
-    crypto::write_lua(
-        path,
-        &crypto::LuaText {
-            text: text.to_string(),
-            encrypted: true,
-        },
-    )
+    crypto::write_atomic(&dir.join("main.lua"), text.as_bytes())
 }

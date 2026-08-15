@@ -1,21 +1,26 @@
-//! 备份机制：但凡补丁要修改星火编辑器源文件，先把原文件原样备份。
+//! 备份机制：整库备份。应用补丁会改写库内大量文件（整库解密），
+//! 因此在首次动手前把**整个包目录**原样备份；还原时整树覆盖回去。
 //!
-//! 备份目录放在**编辑器根目录**下（随编辑器数据走，应用卸载/重装不丢备份），
-//! 按「编辑器版本 / 包_版本」分组，支持多库多文件：
+//! 备份目录放在**编辑器根目录**下（随编辑器数据走，应用卸载/重装不丢备份）：
 //!
 //! ```text
 //! <编辑器根>/bgd_editor_patch/backup/
 //!   api13/
-//!     script_199/common/isolation.lua       # 原始字节，原样恢复即可
-//!     script_199/common/isolation.lua.manifest.json
-//!     xdeditor_160/ui/menu_bar.lua
-//!     xdeditor_160/ui/menu_bar.lua.manifest.json
+//!     script_199/              # script 包（Res/_m/script/199/script）完整原始树
+//!       common/isolation.lua
+//!       ...
+//!     script_199.manifest.json # 备份时间、来源路径
+//!     xdeditor_160/            # xdeditor 包完整原始树
+//!     xdeditor_160.manifest.json
 //! ```
 //!
-//! 同一文件只备份首次（之后即使重复应用补丁也不覆盖），保证还原到真正的原始文件。
+//! 同一分组只备份首次，保证还原到真正的原始状态。
 
+use super::ops;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 备份根目录：<编辑器根>/bgd_editor_patch/backup
@@ -29,50 +34,55 @@ pub fn backup_root(editor_root: &Path) -> Result<PathBuf, String> {
     Ok(editor_root.join("bgd_editor_patch").join("backup"))
 }
 
-fn backup_path(editor_root: &Path, group: &str, rel: &str) -> Result<PathBuf, String> {
-    Ok(backup_root(editor_root)?.join(group).join(rel))
+fn lib_backup_dir(editor_root: &Path, group: &str) -> Result<PathBuf, String> {
+    Ok(backup_root(editor_root)?.join(group))
 }
 
-/// 是否已有备份
-pub fn has_backup(editor_root: &Path, group: &str, rel: &str) -> bool {
-    backup_path(editor_root, group, rel)
-        .map(|p| p.is_file())
+/// 该库分组是否已有备份
+pub fn has_backup(editor_root: &Path, group: &str) -> bool {
+    lib_backup_dir(editor_root, group)
+        .map(|p| p.is_dir())
         .unwrap_or(false)
 }
 
-/// 备份文件（已存在则跳过，返回是否为新备份）
+/// 整库备份（已存在则跳过，返回是否为新备份）。`done` 每复制一个文件 +1。
 /// - `group`：分组，如 `api13/script_199`
-/// - `rel`：包内相对路径，如 `common/isolation.lua`
-pub fn backup_file(editor_root: &Path, group: &str, rel: &str, src: &Path) -> Result<bool, String> {
-    let dest = backup_path(editor_root, group, rel)?;
+/// - `src_dir`：包目录，如 `Res/_m/script/199/script`
+pub fn backup_lib(
+    editor_root: &Path,
+    group: &str,
+    src_dir: &Path,
+    done: &Arc<AtomicUsize>,
+) -> Result<bool, String> {
+    let dest = lib_backup_dir(editor_root, group)?;
     if dest.exists() {
         return Ok(false);
     }
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建备份目录失败: {e}"))?;
-    }
-    fs::copy(src, &dest).map_err(|e| format!("备份 {} 失败: {e}", src.display()))?;
+    ops::copy_dir_recursive(src_dir, &dest, done)?;
 
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let manifest = format!(
-        "{{\n  \"file\": \"{rel}\",\n  \"source\": \"{}\",\n  \"backup_time\": {secs}\n}}\n",
-        src.display().to_string().replace('\\', "\\\\")
+        "{{\n  \"group\": \"{group}\",\n  \"source\": \"{}\",\n  \"backup_time\": {secs}\n}}\n",
+        src_dir.display().to_string().replace('\\', "\\\\")
     );
-    let manifest_path = dest.with_extension("lua.manifest.json");
-    let _ = fs::write(manifest_path, manifest);
+    let _ = fs::write(format!("{}.manifest.json", dest.display()), manifest);
     Ok(true)
 }
 
-/// 用备份还原目标文件（原子替换）
-pub fn restore_file(editor_root: &Path, group: &str, rel: &str, dest: &Path) -> Result<(), String> {
-    let backup = backup_path(editor_root, group, rel)?;
-    if !backup.is_file() {
+/// 整库还原：备份树覆盖回包目录（调用方负责删除补丁新增的目录）。
+/// `done` 每复制一个文件 +1。
+pub fn restore_lib(
+    editor_root: &Path,
+    group: &str,
+    dst_dir: &Path,
+    done: &Arc<AtomicUsize>,
+) -> Result<(), String> {
+    let backup = lib_backup_dir(editor_root, group)?;
+    if !backup.is_dir() {
         return Err(format!("没有可用备份: {}", backup.display()));
     }
-    let data = fs::read(&backup).map_err(|e| format!("读取备份 {} 失败: {e}", backup.display()))?;
-    super::crypto::write_atomic(dest, &data)?;
-    Ok(())
+    ops::copy_dir_recursive(&backup, dst_dir, done)
 }

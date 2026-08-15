@@ -25,7 +25,8 @@ pub fn decrypt(data: &[u8]) -> Result<Vec<u8>, String> {
     Ok(xor(&data[MAGIC.len()..]))
 }
 
-/// 加密：明文异或后加上 4 字节头
+/// 加密：明文异或后加上 4 字节头（当前策略是整库解密为源码，此函数供测试构造加密样本）
+#[allow(dead_code)]
 pub fn encrypt(plain: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(plain.len() + MAGIC.len());
     out.extend_from_slice(&MAGIC);
@@ -40,41 +41,16 @@ fn xor(data: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// 一个读出的 lua 文件：文本 + 原始是否加密（写回时保持原格式）
-pub struct LuaText {
-    pub text: String,
-    pub encrypted: bool,
-}
-
 /// 读取 lua 文件为文本：加密的解密，明文的原样读取
-pub fn read_lua(path: &Path) -> Result<LuaText, String> {
+pub fn read_lua(path: &Path) -> Result<String, String> {
     let raw = fs::read(path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
     if is_encrypted(&raw) {
         let plain = decrypt(&raw)?;
-        let text = String::from_utf8(plain)
-            .map_err(|e| format!("{} 解密后不是有效 UTF-8: {e}", path.display()))?;
-        Ok(LuaText {
-            text,
-            encrypted: true,
-        })
+        String::from_utf8(plain)
+            .map_err(|e| format!("{} 解密后不是有效 UTF-8: {e}", path.display()))
     } else {
-        let text = String::from_utf8(raw)
-            .map_err(|e| format!("{} 不是有效 UTF-8: {e}", path.display()))?;
-        Ok(LuaText {
-            text,
-            encrypted: false,
-        })
+        String::from_utf8(raw).map_err(|e| format!("{} 不是有效 UTF-8: {e}", path.display()))
     }
-}
-
-/// 写回 lua 文件：按 LuaText 记录的原格式（加密/明文），原子替换
-pub fn write_lua(path: &Path, lua: &LuaText) -> Result<(), String> {
-    let data = if lua.encrypted {
-        encrypt(lua.text.as_bytes())
-    } else {
-        lua.text.as_bytes().to_vec()
-    };
-    write_atomic(path, &data)
 }
 
 /// 原子写：先写同目录临时文件，再替换目标

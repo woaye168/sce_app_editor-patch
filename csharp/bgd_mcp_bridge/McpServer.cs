@@ -15,11 +15,9 @@ namespace BgdMcpBridge;
 /// </summary>
 public sealed class McpServer
 {
-    /// <summary>端口区间起点。</summary>
-    public const int PortStart = 39177;
-
-    /// <summary>端口区间终点（含）。</summary>
-    public const int PortEnd = 39187;
+    /// <summary>固定监听端口。刻意<b>不</b>做端口自动跳变——MCP 客户端（AI 工具/编辑器）通常按 URL 静态
+    /// 配置服务地址，端口一变所有已配置客户端全部失效。固定端口才能保证「配置一次永久可用」。</summary>
+    public const int PortFixed = 39177;
 
     /// <summary>MCP 协议版本。</summary>
     public const string ProtocolVersion = "2025-03-26";
@@ -66,31 +64,23 @@ public sealed class McpServer
         }
     }
 
-    /// <summary>启动监听。成功返回 true；失败记日志返回 false（不抛异常）。</summary>
+    /// <summary>启动监听（固定端口 <see cref="PortFixed"/>）。成功返回 true；端口被占则记日志返回 false（不抛异常）。</summary>
     public bool Start()
     {
         try
         {
-            for (int port = PortStart; port <= PortEnd; port++)
+            try
             {
-                try
-                {
-                    var listener = new HttpListener();
-                    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-                    listener.Start();
-                    _listener = listener;
-                    Port = port;
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    Logger.Warn($"端口 {port} 绑定失败: {ex.Message}");
-                }
+                var listener = new HttpListener();
+                listener.Prefixes.Add($"http://127.0.0.1:{PortFixed}/");
+                listener.Start();
+                _listener = listener;
+                Port = PortFixed;
             }
-
-            if (_listener == null)
+            catch (Exception ex)
             {
-                Logger.Error($"端口区间 {PortStart}-{PortEnd} 全部被占，HTTP 服务未启动");
+                // 端口被占：不跳端口（保证已配置客户端可用），明确报错提示用户排查占用进程
+                Logger.Error($"端口 {PortFixed} 被占用，HTTP 服务未启动。请关闭占用该端口的进程后重启编辑器。详情: {ex.Message}");
                 return false;
             }
 
@@ -418,6 +408,7 @@ public sealed class McpServer
           {"name":"list_commands","description":"列出 Lua 侧全部可用命令","inputSchema":{"type":"object","properties":{}}},
           {"name":"get_status","description":"获取编辑器状态","inputSchema":{"type":"object","properties":{}}},
           {"name":"start_debug","description":"启动调试（调试/调试）","inputSchema":{"type":"object","properties":{}}},
+          {"name":"restart_last_debug","description":"再次调试上次调试版本（调试/再次调试上次调试版本）","inputSchema":{"type":"object","properties":{}}},
           {"name":"stop_debug","description":"停止调试（调试/停止）","inputSchema":{"type":"object","properties":{}}},
           {"name":"set_suppress","description":"设置弹窗抑制开关","inputSchema":{"type":"object","properties":{"enabled":{"type":"boolean"}},"required":["enabled"]}},
           {"name":"get_events","description":"拉取事件缓冲中 seq > since 的事件","inputSchema":{"type":"object","properties":{"since":{"type":"integer"}}}}
@@ -485,7 +476,7 @@ public sealed class McpServer
     /// <summary>是否内置固定 tool。</summary>
     private static bool IsBuiltinTool(string name) => name is
         "call_command" or "list_commands" or "get_status" or "start_debug"
-        or "stop_debug" or "set_suppress" or "get_events";
+        or "restart_last_debug" or "stop_debug" or "set_suppress" or "get_events";
 
     /// <summary>若 tool 名是动态命令 slug，返回原始命令名；否则 null。</summary>
     private string? ResolveCommandTool(string toolName)
@@ -539,6 +530,22 @@ public sealed class McpServer
                 {
                     _bridge.SendMenuCommand("调试/停止");
                     return await WaitStatusAsync(s => !s, 15000, "调试停止超时").ConfigureAwait(false);
+                }
+                case "restart_last_debug":
+                {
+                    // 再次调试上次调试版本：复用上次的调试目录，跳过生成，启动更快
+                    var (sok, sres, _) = await ViaLuaAsync("get_status", null, 5000).ConfigureAwait(false);
+                    if (sok && sres != null)
+                    {
+                        var mapPath = sres["map_path"]?.GetValue<string>();
+                        if (string.IsNullOrEmpty(mapPath))
+                        {
+                            return (false, null, "地图未打开：请先在编辑器中打开项目/地图");
+                        }
+                    }
+                    try { await ViaLuaAsync("set_suppress", new { enabled = true }).ConfigureAwait(false); } catch { }
+                    _bridge.SendMenuCommand("调试/再次调试上次调试版本");
+                    return await WaitStatusAsync(s => s, StartDebugTimeoutMs, "再次调试启动超时").ConfigureAwait(false);
                 }
                 case "server_info":
                 {

@@ -52,11 +52,37 @@ if SCE then
     logi('模块加载完成，5 秒后尝试激活 BgdMcpBridge')
 end
 
--- ===== 职责3：命令表记录（wrap window_title_bar.register / register_command） =====
--- require 'ui.menu_bar' 直接返回 window_title_bar 组件本体（menu_bar.lua:3166 `return window_title_bar`）
+-- ===== 职责3+4：延迟初始化（命令表记录 + 弹窗抑制 wrap） =====
+-- 关键时序约束（与 menu_bgd 一致）：绝不能在本模块加载期（补丁入口，时机很早）就
+-- require 'ui.menu_bar' / 'ui.components.message_window' —— menu_bar.lua 顶部有大量
+-- SCE.GetMainWindow()/GetSceneManager() 等顶层副作用，过早 require 会打乱官方初始化顺序，
+-- 导致后续流程被破坏（实证：应用补丁后「调试/模拟多人调试」因 MutiDebugWindow 的
+-- AddMapScoped<IDataCore> 在 CurrentMapName==null 时崩溃而退出编辑器）。
+-- 因此这两个 require + wrap 一律推迟到「地图加载完成（load_map_done）」之后执行，
+-- 此时官方各模块已完全初始化，wrap 安全且 list_commands 能拿到全量命令。
 local command_set = {}
 local window_title_bar
-do
+local suppress_enabled = false   -- 抑制总开关（set_suppress 控制）
+local suppress_auto = false      -- 是否为 start_debug 自动开启（用于自动关闭）
+local suppress_gen = 0           -- 代数令牌，防止旧超时回调误关新一次抑制
+
+local function send_event(evt)
+    if MainFrame then
+        pcall(function()
+            MainFrame:SendEvent('bgd_mcp_event', evt)
+        end)
+    end
+end
+
+local deferred_inited = false
+local function init_deferred()
+    if deferred_inited then
+        return
+    end
+    deferred_inited = true
+
+    -- 职责3：wrap window_title_bar.register / register_command，记录已注册命令表
+    -- require 'ui.menu_bar' 直接返回 window_title_bar 组件本体（menu_bar.lua:3166 `return window_title_bar`）
     local ok, mb = pcall(require, 'ui.menu_bar')
     if ok and type(mb) == 'table' then
         window_title_bar = mb
@@ -82,40 +108,25 @@ do
                 return r
             end
         end
-        logi('已 wrap window_title_bar.register/register_command')
+        -- 兜底：menu_bar 已完全加载，callback_map 里已有大量命令，直接吸收进命令表
+        -- （register 是组件方法，window_title_bar.callback_map 在 menu_bar.lua:3160 暴露）
+        if type(mb.callback_map) == 'table' then
+            for name in pairs(mb.callback_map) do
+                if type(name) == 'string' then
+                    command_set[name] = true
+                end
+            end
+        end
+        logi('已 wrap window_title_bar.register/register_command，并吸收 callback_map 现有命令')
     else
-        logi('require ui.menu_bar 失败，call_command/list_commands 将不可用')
+        logi('require ui.menu_bar 失败，list_commands 将不完整')
     end
-end
 
-local function list_commands()
-    local arr = {}
-    for name in pairs(command_set) do
-        arr[#arr + 1] = name
-    end
-    table.sort(arr)
-    return arr
-end
-
--- ===== 职责4：错误弹窗抑制（wrap message_window） =====
--- require 'ui.components.message_window' 返回表：
---   { message_window=fn, Close=1, Cancel=2, Confirm=3, has_window=fn, close_current_window=fn }
---   （message_window.lua:158-165）；message_window(func, btn_text, prompt_text, title_text, ...)（:138）
-local suppress_enabled = false   -- 抑制总开关（set_suppress 控制）
-local suppress_auto = false      -- 是否为 start_debug 自动开启（用于自动关闭）
-local suppress_gen = 0           -- 代数令牌，防止旧超时回调误关新一次抑制
-
-local function send_event(evt)
-    if MainFrame then
-        pcall(function()
-            MainFrame:SendEvent('bgd_mcp_event', evt)
-        end)
-    end
-end
-
-do
-    local ok, mw = pcall(require, 'ui.components.message_window')
-    if ok and type(mw) == 'table' and type(mw.message_window) == 'function' then
+    -- 职责4：wrap message_window 弹窗抑制
+    -- require 'ui.components.message_window' 返回表：
+    --   { message_window=fn, Close=1, Cancel=2, Confirm=3, has_window=fn, close_current_window=fn }
+    local ok2, mw = pcall(require, 'ui.components.message_window')
+    if ok2 and type(mw) == 'table' and type(mw.message_window) == 'function' then
         local orig_message_window = mw.message_window
         mw.message_window = function(func, btn_text, prompt_text, title_text, ...)
             if not suppress_enabled then
@@ -140,6 +151,27 @@ do
     else
         logi('require ui.components.message_window 失败，弹窗抑制不可用')
     end
+end
+
+-- 地图加载完成后初始化（此时 menu_bar/message_window 已完全初始化，wrap 安全）
+if EVENT and EVENT.load_map_done and EDITOR and EDITOR.event_register then
+    pcall(EDITOR.event_register, EVENT.load_map_done, function()
+        init_deferred()
+    end)
+end
+-- 兜底：若地图已开（事件错过）或事件不可用，延迟后也尝试一次
+pcall(base.wait, 15000, function()
+    init_deferred()
+end)
+
+-- 命令表快照（去重后排序）
+local function list_commands()
+    local arr = {}
+    for name in pairs(command_set) do
+        arr[#arr + 1] = name
+    end
+    table.sort(arr)
+    return arr
 end
 
 -- start_debug 自动抑制：开启后等 pie_will_launch 或 60 秒超时自动关闭

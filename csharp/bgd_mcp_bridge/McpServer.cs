@@ -407,7 +407,9 @@ public sealed class McpServer
                 {
                     var name = p?["name"]?.GetValue<string>();
                     if (string.IsNullOrEmpty(name)) return (false, null, "missing params.name");
-                    return await ViaLuaAsync("call_command", new { name }).ConfigureAwait(false);
+                    // 直发官方菜单事件（官方菜单点击同款路径，fire-and-forget）
+                    _bridge.SendMenuCommand(name);
+                    return (true, new JsonObject { ["sent"] = name }, null);
                 }
                 case "list_commands":
                     return await ViaLuaAsync("list_commands", null).ConfigureAwait(false);
@@ -419,9 +421,17 @@ public sealed class McpServer
                     return await ViaLuaAsync("set_suppress", new { enabled }).ConfigureAwait(false);
                 }
                 case "start_debug":
-                    return await ViaLuaAsync("call_command", new { name = "调试/调试" }, StartDebugTimeoutMs).ConfigureAwait(false);
+                {
+                    // 先经 Lua 桥开弹窗抑制（静默失败不阻断），再直发菜单命令启动调试，最后轮询 get_status 确认 PIE 起来
+                    try { await ViaLuaAsync("set_suppress", new { enabled = true }).ConfigureAwait(false); } catch { }
+                    _bridge.SendMenuCommand("调试/调试");
+                    return await WaitStatusAsync(s => s, StartDebugTimeoutMs, "调试启动超时（PIE 未在预期时间内拉起）").ConfigureAwait(false);
+                }
                 case "stop_debug":
-                    return await ViaLuaAsync("call_command", new { name = "调试/停止" }).ConfigureAwait(false);
+                {
+                    _bridge.SendMenuCommand("调试/停止");
+                    return await WaitStatusAsync(s => !s, 15000, "调试停止超时").ConfigureAwait(false);
+                }
                 case "server_info":
                 {
                     return (true, new JsonObject
@@ -473,6 +483,33 @@ public sealed class McpServer
             try { node = JsonNode.Parse(r.Data.Value.GetRawText()); } catch { }
         }
         return (true, node ?? new JsonObject(), null);
+    }
+
+    /// <summary>
+    /// 轮询 get_status 直到 debugging 满足期望值或超时。
+    /// expect 接收当前 debugging 布尔值，返回 true 表示达成。返回最终的 get_status 数据。
+    /// </summary>
+    private async Task<(bool Ok, JsonNode? Result, string? Error)> WaitStatusAsync(Func<bool, bool> expect, int timeoutMs, string timeoutError)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        JsonNode? last = null;
+        while (DateTime.UtcNow < deadline)
+        {
+            var (ok, result, _) = await ViaLuaAsync("get_status", null, 5000).ConfigureAwait(false);
+            if (ok && result != null)
+            {
+                last = result;
+                bool debugging = false;
+                try { debugging = result["debugging"]?.GetValue<bool>() ?? false; } catch { }
+                if (expect(debugging))
+                {
+                    return (true, result, null);
+                }
+            }
+            await Task.Delay(800).ConfigureAwait(false);
+        }
+        Logger.Warn($"WaitStatus 超时: {timeoutError}");
+        return (false, last, timeoutError);
     }
 
     // ---------------- 基础 IO ----------------

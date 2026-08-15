@@ -123,6 +123,37 @@ public sealed class EditorBridge
         }
     }
 
+    /// <summary>
+    /// 直发官方菜单命令：对原生事件 'EditorMainTitleMenuBar' SendEvent（命令名字符串）。
+    /// 这是官方菜单点击的精确路径（menu_bar.lua:1066 register_event 收到后 call_command(name)），
+    /// 不依赖 Lua 侧 require ui.menu_bar 的时机/形态，是 call_command 的可靠通道。
+    /// 原生事件发送是 fire-and-forget（无回执），发送成功不代表命令执行成功。
+    /// </summary>
+    public void SendMenuCommand(string commandName)
+    {
+        try
+        {
+            var dq = BridgeWindow.Instance?.DispatcherQueue;
+            void Send()
+            {
+                try { _eventManager.SendEvent("EditorMainTitleMenuBar", commandName); }
+                catch (Exception ex) { Logger.Error("SendEvent(EditorMainTitleMenuBar) 失败", ex); }
+            }
+            if (dq != null && !dq.HasThreadAccess)
+            {
+                if (!dq.TryEnqueue(Send)) Logger.Warn("UI 线程投递失败（菜单命令）");
+            }
+            else
+            {
+                Send();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("菜单命令发送异常", ex);
+        }
+    }
+
     /// <summary>回执事件处理（引擎事件线程触发，绝不抛出异常）。</summary>
     private void OnAck(SceEventData data)
     {

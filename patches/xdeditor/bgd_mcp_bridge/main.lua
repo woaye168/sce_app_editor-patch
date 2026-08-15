@@ -201,15 +201,18 @@ handlers.call_command = function(params)
     if type(params) ~= 'table' or type(params.name) ~= 'string' then
         error('params.name 缺失或非法')
     end
-    if not window_title_bar or type(window_title_bar.call_command) ~= 'function' then
-        error('window_title_bar 不可用')
-    end
     -- start_debug：执行前自动开启弹窗抑制
     if params.name == '调试/调试' then
         auto_suppress_on()
     end
-    window_title_bar.call_command(params.name)
-    return true
+    -- 兜底通道：直接调组件方法。主通道是 C# 侧对原生 'EditorMainTitleMenuBar' 事件 SendEvent
+    -- （官方菜单点击同款，menu_bar.lua:1066 register_event 收到后 call_command(name)）。
+    -- 正常情况下 C# 直发原生事件即可，本 handler 作为 C# 选择经 Lua 时的兜底。
+    if window_title_bar and type(window_title_bar.call_command) == 'function' then
+        window_title_bar.call_command(params.name)
+        return true
+    end
+    error('window_title_bar 不可用（require ui.menu_bar 未成功），请改用 C# 直发 EditorMainTitleMenuBar 事件')
 end
 
 handlers.list_commands = function()

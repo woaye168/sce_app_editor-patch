@@ -56,6 +56,12 @@ cargo build --release   # 产物 target/release/sce_app_editor-patch.exe
 cargo test              # 单元 + 集成测试（不碰真实编辑器文件）
 ```
 
+## 开发（补丁开发）
+
+- `patches/<包名>/<模块id>/`：不改库源码的可勾选模块（版本不敏感）
+- `slots/<包名>/<库版本>/`：带插槽的完整新源码文件（版本敏感），用 `cargo run --example make_slots -- <编辑器根> slots` 生成
+- `.trae/skills/`：补丁开发技能与库知识库（`sce-lib-script-199` / `sce-lib-xdeditor-160`），AI/人工开发补丁前先查对应库知识库的 hooks.md
+
 ## 发布
 
 ```bash

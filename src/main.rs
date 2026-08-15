@@ -369,6 +369,12 @@ impl EditorPatchApp {
                     }
                 }
                 ui.label(format!("{} [v{}]", s.label, s.version)).on_hover_text(&s.path);
+                if !s.has_slots && s.status != kernel::LibStatus::Applied {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(0xc0, 0x90, 0x30),
+                        "（无此版本插槽文件，将跳过）",
+                    );
+                }
                 if s.has_backup {
                     ui.monospace("（有备份）");
                 }

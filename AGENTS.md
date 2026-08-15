@@ -27,10 +27,16 @@ sce_app_editor-patch/
 │       ├── ops.rs         # 批量文件操作：整库解密/整目录复制，多线程并行 + 进度
 │       ├── backup.rs      # 整库备份（编辑器根 bgd_editor_patch/backup/<api>/<包_版本>/）
 │       ├── log.rs         # 日志（项目 .bgd/log/app_editor-patch-YYYY-MM-DD.log，按日期分文件）
-│       ├── kernel.rs      # 库登记（LIBS）/整库应用/状态检查/还原/入口插槽（含测试）
+│       ├── kernel.rs      # 库登记（LIBS）/整库应用/slots复制/状态检查/还原（含测试）
 │       └── modules.rs     # 补丁模块注册（按库分组/默认勾选）/启停/框架入口重建
 ├── patches/
-│   └── <包名>/<模块id>/main.lua  # 内置补丁模块（编译期 include_str! 嵌入 exe）
+│   └── <包名>/<模块id>/main.lua  # 内置补丁模块（不改库源码，编译期 include_str! 嵌入）
+├── slots/
+│   └── <包名>/<库版本>/<源码目录结构>/file.lua  # 插槽文件（改库源码，版本敏感，include_dir 嵌入）
+├── examples/
+│   ├── decrypt_mirror.rs  # 工具：整库解密出明文镜像（研究用）
+│   └── make_slots.rs      # 工具：生成 slots 插槽文件（解密+GBK转UTF-8+注入）
+├── .trae/skills/          # 流程技能（patch-module/lib-onboard）+ 库知识库（sce-lib-<库>-<版本>）
 ├── doc/requirements/      # 各版本需求文档
 ├── .github/workflows/release.yml  # tag 触发构建发布
 └── Cargo.toml             # version 固定 0.0.0-dev，CI 按 tag 注入
@@ -53,9 +59,11 @@ sce_app_editor-patch/
 
 ### 内核补丁（kernel.rs）
 
-- **库登记制**：`LIBS` 常量表登记「包名 + require 根 + 入口文件」。应用补丁 = 对每库依次：整库备份（仅首次）→ 整库并行解密 → 库专属文本补丁（script 库解锁 isolation.lua 的 `= nil` 行）→ 入口插槽 → 补丁目录/默认模块。
-- **入口插槽**：插在入口文件末尾顶层 `return` 语句**之前**（`find_trailing_return` 定位，括号平衡验证；无 return 则追加末尾）。标记块 `-->> sce_app_editor-patch >>` / `--<< ... <<` 包裹，应用幂等。**切勿把代码追加在 return 之后**（0.2.0 的教训：menu_bar.lua `return window_title_bar` 结尾导致 `<eof> expected`）。
-- **状态检查**（`check()`）：入口插槽在位（script 库另需 isolation 解锁标记）。编辑器升级覆盖后显示「未应用」，重新「应用补丁」即可（已启用模块保留）。
+- **库登记制**：`LIBS` 常量表登记「包名 + require 根 + 入口文件」。应用补丁 = 对每库依次：整库备份（仅首次）→ 整库并行解密 → **复制插槽文件** → 补丁目录/默认模块。
+- **插槽文件（0.3.1 起）**：仓库 `slots/<包名>/<库版本>/` 下放「带插槽的完整新源码」，编译期 `include_dir` 嵌入，应用时整树**字节级复制覆盖**（不做编解码，天然免疫 GBK/UTF-8 混合）。无匹配版本子目录则跳过并提示。天然支持多插槽与整文件覆盖。
+- 当前插槽：script 库 `common/init.lua`（框架入口插槽，末尾追加 pcall require）+ `common/isolation.lua`（解锁 = nil 行）；xdeditor 库 `main.lua`（入口插槽，顶层 return 之前）。
+- 插槽文件由 `examples/make_slots` 生成（解密 → GBK→UTF-8 → 注入/转换），版本更新后重跑即可。
+- **状态检查**（`check()`）：入口含插槽标记（script 库另需 isolation 解锁标记）。编辑器升级覆盖后显示「未应用」，重新「应用补丁」即可（已启用模块保留）。
 - **还原**：整库备份树覆盖还原 + 删除补丁目录。
 - **进度**：应用/还原在后台线程执行，`SharedProgress`（phase/total/done 原子计数）供 UI 画进度条。
 
@@ -66,12 +74,23 @@ sce_app_editor-patch/
 - 模块声明 `default_enabled`：内核补丁**首次创建**补丁目录时自动启用（用户手动关闭后重新应用不会强开；编辑器升级换版本目录后按全新处理会再启用默认）。
 - 模块按 `pkg` 归属库，UI 按库分组罗列；该库内核未应用时勾选禁用。
 - 新增模块：`patches/<pkg>/<id>/` 放 lua + `builtin_modules()` 注册。
-- 现有模块：script/`hello`（示例）、script/`unwatch`（解除项目文件监听）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；`require 'ui.menu_bar'` 拿到 window_title_bar 单例后 register）。
+- 现有模块：script/`hello`（示例）、script/`unwatch`（解除项目文件监听）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；用官方事件桥 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)` 注册，不在入口模块 require menu_bar——详见库知识库 hooks.md）。
 
 ### 备份与日志（backup.rs / log.rs）
 
 - 备份：`<编辑器根>/bgd_editor_patch/backup/<api版本>/<包名_版本>/` 整树 + `.manifest.json`，同分组只备首次。测试用 `EDITOR_PATCH_BACKUP_DIR` 覆盖。
 - 日志：优先 `<项目>/.bgd/log/app_editor-patch-YYYY-MM-DD.log`（与 visual-injector 一致，按日期分文件）；项目无 .bgd 时退回 `<编辑器根>/bgd_editor_patch/log/`。
+
+### 开发工具（examples/）
+
+- `decrypt_mirror`：`cargo run --example decrypt_mirror -- <包目录> <输出目录>` 整库解密出明文镜像（源码研究用）
+- `make_slots`：`cargo run --example make_slots -- <编辑器根> <slots目录>` 批量生成插槽文件（解密 → GBK→UTF-8 → 注入插槽/isolation 解锁）
+
+### skills 体系（.trae/skills/）
+
+- **流程技能**：`sce-editor-patch-module`（patches 模块开发）/ `sce-editor-lib-onboard`（扩库与 slots 制作）
+- **库知识库**：`sce-lib-<库名>-<版本>/`（架构/加载机制/API 类型声明/hook 配方/逐文件研究记录）——打补丁前必查。当前有 `sce-lib-script-199`、`sce-lib-xdeditor-160`。
+- 库知识库研究方法论：逐文件精确、子代理分批、研究清单先行、成果即时落盘（见 sce-editor-lib-onboard/SKILL.md）。
 
 ## 安全红线（最高优先级）
 

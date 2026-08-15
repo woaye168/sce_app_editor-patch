@@ -1,0 +1,72 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # 完整历史，用于归纳版本间提交
+
+      - name: Generate release notes
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+          $prev = git tag --sort=-v:refname | Where-Object { $_ -ne $tag } | Select-Object -First 1
+          $range = if ($prev) { "$prev..$tag" } else { "$tag" }
+          $commits = git log $range --pretty=format:"- %s (``%h``)" --no-merges
+          $lines = @()
+          $lines += "## 版本说明"
+          $lines += ""
+          if ($prev) { $lines += "本版本相对 ``$prev`` 的全部变更如下：" } else { $lines += "首个版本，包含全部提交：" }
+          $lines += ""
+          $lines += "### What's Changed"
+          $lines += ""
+          if ($commits) { $lines += $commits } else { $lines += "- 无代码变更" }
+          $lines += ""
+          if ($prev) { $lines += "**Full Changelog**: https://github.com/$repo/compare/$prev...$tag" }
+          $body = $lines -join "`n"
+          "body<<EOF" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $body | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "EOF" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+        id: notes
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # 版本号唯一来源是 git tag：构建前把 tag 版本注入 Cargo.toml
+      # 源码中的 version 固定为 0.0.0-dev 占位，无需手工同步
+      - name: Inject version from tag
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart('v')
+          Write-Output "注入版本号: $ver"
+          $cargo = Get-Content Cargo.toml -Raw
+          $cargo = $cargo -replace '(?m)^version = "[^"]*"', "version = `"$ver`""
+          Set-Content Cargo.toml $cargo -NoNewline -Encoding utf8
+          Write-Output "已写入 Cargo.toml"
+
+      # 不用 --locked：上一步注入了版本号到 Cargo.toml，Cargo.lock 需同步更新
+      - name: Build release
+        run: cargo build --release
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: sce_app_editor-patch ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          draft: false
+          prerelease: false
+          files: |
+            target/release/sce_app_editor-patch.exe

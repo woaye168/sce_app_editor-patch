@@ -16,8 +16,43 @@ namespace BgdMcpBridge;
 public sealed class McpServer
 {
     /// <summary>固定监听端口。刻意<b>不</b>做端口自动跳变——MCP 客户端（AI 工具/编辑器）通常按 URL 静态
-    /// 配置服务地址，端口一变所有已配置客户端全部失效。固定端口才能保证「配置一次永久可用」。</summary>
+    /// 配置服务地址，端口一变所有已配置客户端全部失效。固定端口才能保证「配置一次永久可用」。
+    /// 默认 39177，可被配置文件覆盖（见 <see cref="ResolvePort"/>）。</summary>
     public const int PortFixed = 39177;
+
+    /// <summary>实际生效端口（启动时由 ResolvePort 确定）。</summary>
+    private static int EffectivePort = PortFixed;
+
+    /// <summary>
+    /// 解析监听端口：优先读配置文件 <引擎运行根>/logs/bgd_csharp/config.json 的 mcp_port 字段
+    /// （编辑器补丁应用「设置」页可改），非法/缺失则用默认 <see cref="PortFixed"/>。
+    /// </summary>
+    private static int ResolvePort()
+    {
+        try
+        {
+            var root = Logger.TryGetEngineRoot();
+            if (root != null)
+            {
+                var cfgPath = Path.Combine(root, "logs", "bgd_csharp", "config.json");
+                if (File.Exists(cfgPath))
+                {
+                    var doc = JsonNode.Parse(File.ReadAllText(cfgPath)) as JsonObject;
+                    var v = doc?["mcp_port"];
+                    if (v != null && int.TryParse(v.ToString(), out var p) && p > 1024 && p < 65535)
+                    {
+                        Logger.Info($"使用配置文件端口: {p}");
+                        return p;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"读取端口配置失败，用默认端口 {PortFixed}: {ex.Message}");
+        }
+        return PortFixed;
+    }
 
     /// <summary>MCP 协议版本。</summary>
     public const string ProtocolVersion = "2025-03-26";
@@ -69,18 +104,19 @@ public sealed class McpServer
     {
         try
         {
+            EffectivePort = ResolvePort();
             try
             {
                 var listener = new HttpListener();
-                listener.Prefixes.Add($"http://127.0.0.1:{PortFixed}/");
+                listener.Prefixes.Add($"http://127.0.0.1:{EffectivePort}/");
                 listener.Start();
                 _listener = listener;
-                Port = PortFixed;
+                Port = EffectivePort;
             }
             catch (Exception ex)
             {
                 // 端口被占：不跳端口（保证已配置客户端可用），明确报错提示用户排查占用进程
-                Logger.Error($"端口 {PortFixed} 被占用，HTTP 服务未启动。请关闭占用该端口的进程后重启编辑器。详情: {ex.Message}");
+                Logger.Error($"端口 {EffectivePort} 被占用，HTTP 服务未启动。请关闭占用该端口的进程后重启编辑器。详情: {ex.Message}");
                 return false;
             }
 
@@ -401,11 +437,15 @@ public sealed class McpServer
 
     private JsonObject BuildToolsList()
     {
-        // 固定工具清单（inputSchema 为 JSON Schema）
+        // 固定工具 + 分类元工具（list_tool_categories / list_category_tools）。
+        // 刻意不把 80+ 菜单命令直接平铺进 tools/list——避免淹没 AI 上下文。
+        // AI 先调 list_tool_categories 拿分类，再按分类调 list_category_tools 取该分类的命令 tools。
         var tools = JsonNode.Parse("""
         [
-          {"name":"call_command","description":"调用编辑器 Lua 侧注册的命令","inputSchema":{"type":"object","properties":{"name":{"type":"string","description":"命令名"}},"required":["name"]}},
-          {"name":"list_commands","description":"列出 Lua 侧全部可用命令","inputSchema":{"type":"object","properties":{}}},
+          {"name":"call_command","description":"调用编辑器 Lua 侧注册的命令（params.name=命令名）","inputSchema":{"type":"object","properties":{"name":{"type":"string","description":"命令名"}},"required":["name"]}},
+          {"name":"list_commands","description":"列出 Lua 侧全部可用命令名（平铺，量大；建议改用 list_tool_categories 按分类取）","inputSchema":{"type":"object","properties":{}}},
+          {"name":"list_tool_categories","description":"列出编辑器命令的分类（如 文件/调试/工具/发布），供按分类懒加载","inputSchema":{"type":"object","properties":{}}},
+          {"name":"list_category_tools","description":"列出某分类下的命令 tools（params.category=分类名，返回该分类可调用的命令及 tool 名）","inputSchema":{"type":"object","properties":{"category":{"type":"string","description":"分类名（list_tool_categories 返回的）"}},"required":["category"]}},
           {"name":"get_status","description":"获取编辑器状态","inputSchema":{"type":"object","properties":{}}},
           {"name":"start_debug","description":"启动调试（调试/调试）","inputSchema":{"type":"object","properties":{}}},
           {"name":"restart_last_debug","description":"再次调试上次调试版本（调试/再次调试上次调试版本）","inputSchema":{"type":"object","properties":{}}},
@@ -414,18 +454,31 @@ public sealed class McpServer
           {"name":"get_events","description":"拉取事件缓冲中 seq > since 的事件","inputSchema":{"type":"object","properties":{"since":{"type":"integer"}}}}
         ]
         """) as JsonArray;
-
-        // 动态展开：把 Lua 侧每个已注册命令暴露为一个独立 tool（tool 名用安全 slug，中文命令入 description）
-        foreach (var (slug, cmdName) in GetCommandToolMap())
-        {
-            tools!.Add(new JsonObject
-            {
-                ["name"] = slug,
-                ["description"] = $"编辑器命令：{cmdName}",
-                ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
-            });
-        }
         return new JsonObject { ["tools"] = tools };
+    }
+
+    /// <summary>按「命令名第一个 / 前缀」把命令分类（如 调试/调试 → 分类「调试」）。无 / 的归入「其他」。</summary>
+    private static string CategoryOf(string cmdName)
+    {
+        var idx = cmdName.IndexOf('/');
+        return idx > 0 ? cmdName[..idx] : "其他";
+    }
+
+    /// <summary>分类 → 该分类下的 (slug, 原始命令名) 列表。</summary>
+    private Dictionary<string, List<(string Slug, string Cmd)>> GetCommandsByCategory()
+    {
+        var map = new Dictionary<string, List<(string, string)>>();
+        foreach (var (slug, cmd) in GetCommandToolMap())
+        {
+            var cat = CategoryOf(cmd);
+            if (!map.TryGetValue(cat, out var list))
+            {
+                list = new List<(string, string)>();
+                map[cat] = list;
+            }
+            list.Add((slug, cmd));
+        }
+        return map;
     }
 
     /// <summary>拉取（并缓存）Lua 命令 → MCP 安全 tool 名的映射。失败返回已缓存或空。</summary>
@@ -475,8 +528,9 @@ public sealed class McpServer
 
     /// <summary>是否内置固定 tool。</summary>
     private static bool IsBuiltinTool(string name) => name is
-        "call_command" or "list_commands" or "get_status" or "start_debug"
-        or "restart_last_debug" or "stop_debug" or "set_suppress" or "get_events";
+        "call_command" or "list_commands" or "list_tool_categories" or "list_category_tools"
+        or "get_status" or "start_debug" or "restart_last_debug" or "stop_debug"
+        or "set_suppress" or "get_events";
 
     /// <summary>若 tool 名是动态命令 slug，返回原始命令名；否则 null。</summary>
     private string? ResolveCommandTool(string toolName)
@@ -502,6 +556,33 @@ public sealed class McpServer
                 }
                 case "list_commands":
                     return await ViaLuaAsync("list_commands", null).ConfigureAwait(false);
+                case "list_tool_categories":
+                {
+                    // 返回命令分类及各类数量，供 AI 按分类懒加载（减上下文）
+                    var byCat = GetCommandsByCategory();
+                    var cats = new JsonArray();
+                    foreach (var (cat, list) in byCat.OrderBy(kv => kv.Key))
+                    {
+                        cats.Add(new JsonObject { ["category"] = cat, ["count"] = list.Count });
+                    }
+                    return (true, new JsonObject { ["categories"] = cats }, null);
+                }
+                case "list_category_tools":
+                {
+                    var cat = p?["category"]?.GetValue<string>();
+                    if (string.IsNullOrEmpty(cat)) return (false, null, "missing params.category");
+                    var byCat = GetCommandsByCategory();
+                    if (!byCat.TryGetValue(cat, out var list))
+                    {
+                        return (true, new JsonObject { ["tools"] = new JsonArray(), ["category"] = cat }, null);
+                    }
+                    var arr = new JsonArray();
+                    foreach (var (slug, cmd) in list)
+                    {
+                        arr.Add(new JsonObject { ["tool"] = slug, ["command"] = cmd });
+                    }
+                    return (true, new JsonObject { ["category"] = cat, ["tools"] = arr }, null);
+                }
                 case "get_status":
                     return await ViaLuaAsync("get_status", null).ConfigureAwait(false);
                 case "set_suppress":

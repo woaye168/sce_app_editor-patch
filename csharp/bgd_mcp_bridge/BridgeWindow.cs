@@ -23,11 +23,18 @@ public class BridgeWindow : Window
     // 单例保护标记：宿主重复触发构造时只记日志不重复初始化
     private static bool _initialized;
 
-    // 等待宿主 DI 就绪的最长时间
+    // 等待宿主 DI 就绪的最长时间（从「地图就绪」后开始计）
     private static readonly TimeSpan DiWaitTimeout = TimeSpan.FromSeconds(30);
 
     // DI 重试间隔
     private static readonly TimeSpan DiRetryInterval = TimeSpan.FromMilliseconds(500);
+
+    // 等待「地图加载完成」（Editor.CurrentMapName 非空）的最长时间。
+    // 关键：在地图未加载（CurrentMapName==null）时绝不能调用 Editor.GetService<T>()——
+    // DI 容器对 AddMapScoped 服务（如 IDataCore）的解析会污染共享缓存 mapScopedServices，
+    // 导致官方模块（如 MutiDebugWindow 模拟多人调试）后续解析 IDataCore 时崩溃退出。
+    // 因此 DI 触碰一律推迟到地图加载之后。
+    private static readonly TimeSpan MapWaitTimeout = TimeSpan.FromMinutes(10);
 
     private readonly TextBlock _statusText;
     private readonly DateTime _startTime = DateTime.Now;
@@ -93,6 +100,16 @@ public class BridgeWindow : Window
     {
         try
         {
+            // 第一步：等待地图加载完成（CurrentMapName 非空）。
+            // 在此之前绝不调用 Editor.GetService<T>()，避免污染 AddMapScoped 缓存导致官方模块崩溃。
+            if (!await WaitForMapLoadedAsync().ConfigureAwait(false))
+            {
+                Logger.Warn("等待地图加载超时（10min），服务仍未启动（编辑器未开图）");
+                UpdateStatus("bgd_mcp_bridge 待命中：请先在编辑器打开地图");
+                return;
+            }
+
+            // 第二步：地图就绪后，等待宿主 DI 可用并取服务
             SceEventManager? eventManager = null;
             SceEventObject? eventObject = null;
             var deadline = DateTime.UtcNow + DiWaitTimeout;
@@ -143,6 +160,28 @@ public class BridgeWindow : Window
             Logger.Error("服务初始化失败", ex);
             UpdateStatus("bgd_mcp_bridge 启动失败，详见日志");
         }
+    }
+
+    /// <summary>轮询等待地图加载完成（Editor.CurrentMapName 非空）。读静态属性不触发 DI 解析，安全。超时返回 false。</summary>
+    private static async Task<bool> WaitForMapLoadedAsync()
+    {
+        var deadline = DateTime.UtcNow + MapWaitTimeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(SceEditor.CurrentMapName))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                // Editor.Current 尚未就绪时读取可能抛异常，继续等待
+            }
+            await Task.Delay(DiRetryInterval).ConfigureAwait(false);
+        }
+        return false;
     }
 
     /// <summary>

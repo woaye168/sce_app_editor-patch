@@ -88,6 +88,7 @@ fn setup_chinese_font(ctx: &egui::Context) {
 enum Tab {
     Kernel,
     Patches,
+    Settings,
     Help,
 }
 
@@ -108,6 +109,8 @@ struct EditorPatchApp {
     /// 正在执行的后台任务（应用/还原）
     task: Option<kernel::SharedProgress>,
     status: String,
+    /// MCP 端口配置（文本框，默认 39177）
+    mcp_port_input: String,
 }
 
 impl EditorPatchApp {
@@ -122,6 +125,7 @@ impl EditorPatchApp {
             enabled: BTreeMap::new(),
             task: None,
             status: String::new(),
+            mcp_port_input: String::new(),
         };
         if let Some(root) = project_root {
             app.set_project(root);
@@ -174,6 +178,7 @@ impl EditorPatchApp {
                 self.status = format!("已定位：编辑器版本 {}", target.api_version);
                 self.target = Some(target);
                 self.log("INFO", &format!("已加载项目: {}", root.display()));
+                self.load_mcp_port();
                 self.auto_redeploy_bridge();
             }
             Err(e) => {
@@ -212,6 +217,57 @@ impl EditorPatchApp {
             Err(e) => {
                 self.log("ERROR", &format!("自动更新 bgd_mcp_bridge.dll 失败: {e}"));
                 self.status = format!("bgd_mcp_bridge.dll 需更新但写入失败（编辑器可能正在运行）：{e}");
+            }
+        }
+    }
+
+    /// MCP 配置文件路径：<引擎运行根>/logs/bgd_csharp/config.json
+    fn mcp_config_path(&self) -> Option<PathBuf> {
+        self.target
+            .as_ref()
+            .map(|t| t.engine_root().join("logs").join("bgd_csharp").join("config.json"))
+    }
+
+    /// 从 config.json 读端口到输入框（无配置则用默认 39177）
+    fn load_mcp_port(&mut self) {
+        let port = self
+            .mcp_config_path()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("mcp_port").and_then(|x| x.as_u64()))
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "39177".to_string());
+        self.mcp_port_input = port;
+    }
+
+    /// 保存端口到 config.json（C# 侧启动时读取，重启编辑器后生效）
+    fn save_mcp_port(&mut self) {
+        let trimmed = self.mcp_port_input.trim();
+        let port: u64 = match trimmed.parse() {
+            Ok(p) if (1025..65535).contains(&p) => p,
+            _ => {
+                self.status = format!("端口无效（需 1025-65534 的整数）：{trimmed}");
+                return;
+            }
+        };
+        let Some(path) = self.mcp_config_path() else {
+            self.status = "未定位到编辑器，无法保存端口配置".to_string();
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.status = format!("创建配置目录失败: {e}");
+                return;
+            }
+        }
+        let body = serde_json::json!({ "mcp_port": port }).to_string();
+        match std::fs::write(&path, body) {
+            Ok(()) => {
+                self.status = format!("MCP 端口已保存为 {port}（重启星火编辑器后生效）");
+                self.log("INFO", &format!("MCP 端口已保存: {port}"));
+            }
+            Err(e) => {
+                self.status = format!("保存端口配置失败: {e}");
             }
         }
     }
@@ -297,6 +353,7 @@ impl eframe::App for EditorPatchApp {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.tab, Tab::Kernel, "内核");
                 ui.selectable_value(&mut self.tab, Tab::Patches, "补丁");
+                ui.selectable_value(&mut self.tab, Tab::Settings, "设置");
                 ui.selectable_value(&mut self.tab, Tab::Help, "帮助");
             });
         });
@@ -327,6 +384,7 @@ impl eframe::App for EditorPatchApp {
             match self.tab {
                 Tab::Kernel => self.ui_kernel(ui, task_running),
                 Tab::Patches => self.ui_patches(ui),
+                Tab::Settings => self.ui_settings(ui),
                 Tab::Help => Self::ui_help(ui),
             }
         });
@@ -574,6 +632,28 @@ impl EditorPatchApp {
             .find(|s| s.pkg == pkg)
             .map(|s| s.version.clone())
             .unwrap_or_else(|| "?".to_string())
+    }
+
+    /// 「设置」标签页：MCP 服务端口配置
+    fn ui_settings(&mut self, ui: &mut egui::Ui) {
+        ui.heading("设置");
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        ui.label("MCP 桥服务（bgd_mcp_bridge）");
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label("监听端口：");
+            ui.add(egui::TextEdit::singleline(&mut self.mcp_port_input).desired_width(80.0));
+            if ui.button("保存").clicked() {
+                self.save_mcp_port();
+            }
+        });
+        ui.add_space(2.0);
+        ui.weak("默认 39177。端口被占用时可改为其他端口（1025-65534）。");
+        ui.weak("保存后需重启星火编辑器生效；外部 AI 工具按 http://127.0.0.1:<端口>/mcp 配置。");
+        ui.weak("刻意不做端口自动跳变——AI 工具按 URL 静态配置，跳端口会导致已配置客户端失效。");
     }
 
     fn ui_help(ui: &mut egui::Ui) {

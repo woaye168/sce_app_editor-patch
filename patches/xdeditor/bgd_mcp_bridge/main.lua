@@ -45,6 +45,8 @@ local function try_activate(attempt)
     end
 end
 
+-- C# dll 激活。注意：C# 侧 BridgeWindow 会把 DI 触碰推迟到地图加载后（WaitForMapLoadedAsync），
+-- 避免污染宿主 AddMapScoped 缓存导致官方模块（模拟多人调试）崩溃。
 if SCE then
     pcall(base.wait, 5000, function()
         try_activate(1)

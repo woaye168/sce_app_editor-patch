@@ -48,6 +48,8 @@ public class BridgeWindow : Window
         _initialized = true;
         Instance = this;
 
+        InstallGlobalExceptionGuards();
+
         Title = "bgd_mcp_bridge";
 
         _statusText = new TextBlock
@@ -123,8 +125,9 @@ public class BridgeWindow : Window
             events.SubscribeNative();
 
             var server = new McpServer(bridge, events);
-            // ExitEditor：停止服务并删除端口文件
-            events.OnExitEditor = server.Stop;
+            // ExitEditor（编辑器关闭）：进程即将退出，只做轻量清理（删端口文件），
+            // 不 Stop listener——避免停机竞态弹未处理异常框（HttpListenerException 995 / ObjectDisposed）。
+            events.OnExitEditor = server.OnProcessExit;
 
             if (!server.Start())
             {
@@ -140,6 +143,53 @@ public class BridgeWindow : Window
             Logger.Error("服务初始化失败", ex);
             UpdateStatus("bgd_mcp_bridge 启动失败，详见日志");
         }
+    }
+
+    /// <summary>
+    /// 全局未处理异常守护：吞掉「停机期预期异常」（HttpListener 995 / ObjectDisposed / OperationCanceled），
+    /// 防止进程关闭瞬间监听器/IO 线程的竞态异常逃逸成原生弹窗。其余异常仍记日志（不吞，便于排查）。
+    /// 只过滤明确属于关闭竞态的类型，不影响其他功能。
+    /// </summary>
+    private static void InstallGlobalExceptionGuards()
+    {
+        try
+        {
+            TaskScheduler.UnobservedTaskException += (_, e) =>
+            {
+                if (IsShutdownNoise(e.Exception))
+                {
+                    e.SetObserved(); // 标记已观察，阻止进宿主未处理流程
+                }
+                else
+                {
+                    Logger.Error("未观察的任务异常", e.Exception);
+                }
+            };
+            AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            {
+                if (e.ExceptionObject is Exception ex && !IsShutdownNoise(ex))
+                {
+                    Logger.Error("未处理异常", ex);
+                }
+                // 停机噪音：不记也不上报，进程正在退出，无需处理
+            };
+        }
+        catch (Exception ex)
+        {
+            Logger.Error("安装全局异常守护失败", ex);
+        }
+    }
+
+    /// <summary>判断是否「进程关闭期的预期噪音异常」（HttpListener/IO 句柄在退出时被回收所致）。</summary>
+    private static bool IsShutdownNoise(Exception ex)
+    {
+        for (Exception? cur = ex; cur != null; cur = cur.InnerException)
+        {
+            if (cur is ObjectDisposedException or OperationCanceledException) return true;
+            // HttpListenerException 995 = 线程退出/应用请求导致 I/O 中止（ERROR_OPERATION_ABORTED）
+            if (cur is System.Net.HttpListenerException hle && hle.ErrorCode == 995) return true;
+        }
+        return false;
     }
 
     /// <summary>刷新状态页文本（端口/请求计数），切 UI 线程执行。</summary>

@@ -38,9 +38,16 @@ fn deps_bak_path(version_dir: &Path) -> std::path::PathBuf {
 }
 
 /// 部署：写入 dll + 向 sce.deps.json 注入登记条目（幂等）
+///
+/// dll 写入策略：已部署 dll 与内嵌版本**内容一致则跳过**（避免不必要写入）；
+/// 内容不同（应用升级带来新 dll）才覆盖写入。覆盖时若编辑器正在运行（dll 被进程锁定），
+/// 写入会失败——此时返回明确错误提示用户关闭编辑器后重试。
 pub fn deploy(version_dir: &Path) -> Result<(), String> {
-    // a) 原子写入 dll
-    crypto::write_atomic(&dll_path(version_dir), BRIDGE_DLL)?;
+    // a) 原子写入 dll（内容不同才写）
+    let dll = dll_path(version_dir);
+    if needs_dll_update(&dll) {
+        write_dll(&dll)?;
+    }
 
     // b) deps.json 注入
     let deps = deps_path(version_dir);
@@ -91,6 +98,34 @@ pub fn deploy(version_dir: &Path) -> Result<(), String> {
     let out =
         serde_json::to_string_pretty(&doc).map_err(|e| format!("序列化 sce.deps.json 失败: {e}"))?;
     crypto::write_atomic(&deps, out.as_bytes())
+}
+
+/// 判断已部署 dll 是否需要更新（不存在或与内嵌版本内容不同）
+fn needs_dll_update(dll: &Path) -> bool {
+    if !dll.is_file() {
+        return true;
+    }
+    match fs::read(dll) {
+        Ok(existing) => existing != BRIDGE_DLL,
+        // 读不到（可能被占用）时保守视为需更新，让写入阶段给出明确占用错误
+        Err(_) => true,
+    }
+}
+
+/// 覆盖写入 dll；被运行中的编辑器锁定（占用）时给出明确中文提示
+fn write_dll(dll: &Path) -> Result<(), String> {
+    crypto::write_atomic(dll, BRIDGE_DLL).map_err(|e| {
+        format!(
+            "写入 {} 失败: {e}。若星火编辑器正在运行会锁定该 dll，请关闭编辑器后重试。",
+            dll.display()
+        )
+    })
+}
+
+/// 检测模块勾选状态下 dll 是否需要重新部署（dll 缺失或版本与内嵌不一致）。
+/// 用于应用升级后：模块勾选状态保留，但内嵌 dll 已更新，需提示/自动重部署。
+pub fn needs_redeploy(version_dir: &Path) -> bool {
+    needs_dll_update(&dll_path(version_dir))
 }
 
 /// 摘除：从 sce.deps.json 移除登记条目（没有则跳过）+ 删除 dll。

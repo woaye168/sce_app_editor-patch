@@ -13,7 +13,7 @@
 mod core;
 
 use clap::Parser;
-use core::{kernel, locate, log, modules, EditorTarget};
+use core::{bridge_deploy, kernel, locate, log, modules, EditorTarget};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -174,6 +174,7 @@ impl EditorPatchApp {
                 self.status = format!("已定位：编辑器版本 {}", target.api_version);
                 self.target = Some(target);
                 self.log("INFO", &format!("已加载项目: {}", root.display()));
+                self.auto_redeploy_bridge();
             }
             Err(e) => {
                 self.target = None;
@@ -182,6 +183,35 @@ impl EditorPatchApp {
                 self.locate_error = e.clone();
                 self.status = format!("定位失败: {e}");
                 log::log(Some(&root), None, "ERROR", &format!("定位失败: {e}"));
+            }
+        }
+    }
+
+    /// 模块勾选状态保留但内嵌 dll 已更新时，自动重新部署 bgd_mcp_bridge.dll。
+    /// 场景：应用市场升级本应用后重启——补丁目录里模块仍是勾选态，但 exe 内嵌的 dll 已是新版。
+    /// 此时若 version 目录里的 dll 与内嵌不一致，自动重写（编辑器开着会锁定 dll，失败仅记日志提示）。
+    fn auto_redeploy_bridge(&mut self) {
+        let Some(target) = &self.target else { return };
+        // 仅当 bgd_mcp_bridge 处于勾选状态才考虑重部署
+        let enabled_here = self
+            .enabled
+            .values()
+            .any(|ids| ids.iter().any(|i| i == "bgd_mcp_bridge"));
+        if !enabled_here {
+            return;
+        }
+        let vdir = target.version_dir();
+        if !bridge_deploy::needs_redeploy(&vdir) {
+            return;
+        }
+        match bridge_deploy::deploy(&vdir) {
+            Ok(()) => {
+                self.log("INFO", "检测到 bgd_mcp_bridge.dll 版本过旧，已自动更新（重启编辑器后生效）");
+                self.status = "已自动更新 bgd_mcp_bridge.dll（重启编辑器后生效）".to_string();
+            }
+            Err(e) => {
+                self.log("ERROR", &format!("自动更新 bgd_mcp_bridge.dll 失败: {e}"));
+                self.status = format!("bgd_mcp_bridge.dll 需更新但写入失败（编辑器可能正在运行）：{e}");
             }
         }
     }

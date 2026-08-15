@@ -1,6 +1,7 @@
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace BgdMcpBridge;
@@ -106,11 +107,24 @@ public sealed class McpServer
         }
     }
 
-    /// <summary>停止监听并删除端口文件（幂等）。</summary>
+    /// <summary>停止监听并删除端口文件（幂等）。仅用于模块主动下线；进程退出场景请用 <see cref="OnProcessExit"/>。</summary>
     public void Stop()
     {
         try { _cts?.Cancel(); } catch { }
-        try { _listener?.Stop(); } catch { }
+        try { if (_listener != null && _listener.IsListening) _listener.Stop(); } catch { }
+        DeletePortFile();
+    }
+
+    /// <summary>
+    /// 进程退出（编辑器关闭）时的清理：只删端口文件，<b>不</b>调用 listener.Stop()。
+    /// 原因：ExitApplication 事件在引擎事件线程触发，此时 Stop 会 dispose 底层
+    /// HttpRequestQueueV2Handle，正阻塞在 GetContextAsync 的 IO 线程随即抛出
+    /// HttpListenerException(995)/ObjectDisposedException 并逃逸为未处理异常（弹原生框）。
+    /// 进程即将退出，监听器交给 OS 收尸即可，无需显式停止。
+    /// </summary>
+    public void OnProcessExit()
+    {
+        try { _cts?.Cancel(); } catch { }
         DeletePortFile();
     }
 
@@ -321,7 +335,20 @@ public sealed class McpServer
                     await WriteJsonAsync(ctx, 200, McpError(id, -32602, "missing tool name")).ConfigureAwait(false);
                     break;
                 }
-                var (ok, result, error) = await DispatchAsync(name, args).ConfigureAwait(false);
+                // 动态命令 tool（slug）→ 反查原始命令名，走 call_command 通道
+                string? dynamicCmd = null;
+                if (!IsBuiltinTool(name))
+                {
+                    dynamicCmd = ResolveCommandTool(name);
+                    if (dynamicCmd == null)
+                    {
+                        await WriteJsonAsync(ctx, 200, McpError(id, -32602, $"unknown tool: {name}")).ConfigureAwait(false);
+                        break;
+                    }
+                }
+                var (ok, result, error) = dynamicCmd != null
+                    ? await DispatchAsync("call_command", new JsonObject { ["name"] = dynamicCmd }).ConfigureAwait(false)
+                    : await DispatchAsync(name, args).ConfigureAwait(false);
                 JsonObject toolResult = ok
                     ? new JsonObject
                     {
@@ -378,9 +405,13 @@ public sealed class McpServer
         }.ToJsonString();
     }
 
-    private static JsonObject BuildToolsList()
+    // 动态命令 tools：slug → 原始命令名 的映射缓存（list_commands 拉取一次后缓存）
+    private readonly Dictionary<string, string> _commandToolMap = new();
+    private bool _commandToolsLoaded;
+
+    private JsonObject BuildToolsList()
     {
-        // 工具清单（inputSchema 为 JSON Schema）
+        // 固定工具清单（inputSchema 为 JSON Schema）
         var tools = JsonNode.Parse("""
         [
           {"name":"call_command","description":"调用编辑器 Lua 侧注册的命令","inputSchema":{"type":"object","properties":{"name":{"type":"string","description":"命令名"}},"required":["name"]}},
@@ -392,7 +423,74 @@ public sealed class McpServer
           {"name":"get_events","description":"拉取事件缓冲中 seq > since 的事件","inputSchema":{"type":"object","properties":{"since":{"type":"integer"}}}}
         ]
         """) as JsonArray;
+
+        // 动态展开：把 Lua 侧每个已注册命令暴露为一个独立 tool（tool 名用安全 slug，中文命令入 description）
+        foreach (var (slug, cmdName) in GetCommandToolMap())
+        {
+            tools!.Add(new JsonObject
+            {
+                ["name"] = slug,
+                ["description"] = $"编辑器命令：{cmdName}",
+                ["inputSchema"] = new JsonObject { ["type"] = "object", ["properties"] = new JsonObject() }
+            });
+        }
         return new JsonObject { ["tools"] = tools };
+    }
+
+    /// <summary>拉取（并缓存）Lua 命令 → MCP 安全 tool 名的映射。失败返回已缓存或空。</summary>
+    private IReadOnlyDictionary<string, string> GetCommandToolMap()
+    {
+        if (_commandToolsLoaded) return _commandToolMap;
+        _commandToolsLoaded = true;
+        try
+        {
+            var data = _bridge.SendCommandAsync("list_commands", null, 10000)
+                .ConfigureAwait(false).GetAwaiter().GetResult();
+            if (data.HasValue && data.Value.ValueKind == JsonValueKind.Array)
+            {
+                var seen = new HashSet<string>();
+                foreach (var item in data.Value.EnumerateArray())
+                {
+                    var cmd = item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+                    if (string.IsNullOrEmpty(cmd)) continue;
+                    var slug = ToToolSlug(cmd, seen);
+                    if (slug != null) _commandToolMap[slug] = cmd;
+                }
+                Logger.Info($"动态命令 tools 已加载: {_commandToolMap.Count} 个");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"加载动态命令 tools 失败: {ex.Message}");
+        }
+        return _commandToolMap;
+    }
+
+    /// <summary>把中文/含斜杠命令名转成 MCP 合法 tool 名（[a-zA-Z0-9_-]，≤64）。</summary>
+    private static string? ToToolSlug(string cmd, HashSet<string> seen)
+    {
+        var sb = new System.Text.StringBuilder("cmd_");
+        foreach (var ch in cmd)
+        {
+            if (char.IsAsciiLetterOrDigit(ch)) sb.Append(ch);
+            else if (ch == '/' || ch == '(' || ch == ')' || ch == ' ' || ch == '-') sb.Append('_');
+            else sb.Append('u').Append(((int)ch).ToString("x4")); // 中文等非 ASCII → uXXXX
+        }
+        var slug = sb.ToString();
+        if (slug.Length > 64) slug = slug[..64];
+        if (!seen.Add(slug)) return null; // 冲突则跳过（极端情况）
+        return slug;
+    }
+
+    /// <summary>是否内置固定 tool。</summary>
+    private static bool IsBuiltinTool(string name) => name is
+        "call_command" or "list_commands" or "get_status" or "start_debug"
+        or "stop_debug" or "set_suppress" or "get_events";
+
+    /// <summary>若 tool 名是动态命令 slug，返回原始命令名；否则 null。</summary>
+    private string? ResolveCommandTool(string toolName)
+    {
+        return GetCommandToolMap().TryGetValue(toolName, out var cmd) ? cmd : null;
     }
 
     // ---------------- 核心分发（/rpc 与 tools/call 共用） ----------------
@@ -422,6 +520,16 @@ public sealed class McpServer
                 }
                 case "start_debug":
                 {
+                    // 防护：地图未就绪时不触发（官方部分调试模块在无图时会崩，如 MutiDebugWindow 依赖 AddMapScoped<IDataCore>）
+                    var (sok, sres, _) = await ViaLuaAsync("get_status", null, 5000).ConfigureAwait(false);
+                    if (sok && sres != null)
+                    {
+                        var mapPath = sres["map_path"]?.GetValue<string>();
+                        if (string.IsNullOrEmpty(mapPath))
+                        {
+                            return (false, null, "地图未打开：请先在编辑器中打开项目/地图，再启动调试");
+                        }
+                    }
                     // 先经 Lua 桥开弹窗抑制（静默失败不阻断），再直发菜单命令启动调试，最后轮询 get_status 确认 PIE 起来
                     try { await ViaLuaAsync("set_suppress", new { enabled = true }).ConfigureAwait(false); } catch { }
                     _bridge.SendMenuCommand("调试/调试");

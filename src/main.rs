@@ -1,7 +1,7 @@
 //! 编辑器补丁（sce_app_editor-patch）：独立应用
 //!
-//! 给星火编辑器打补丁：解除编辑器使用限制（isolation.lua 解锁），
-//! 注入补丁框架入口，支持可勾选启停的补丁模块。
+//! 给星火编辑器打补丁：解除编辑器使用限制（isolation.lua 解锁）、
+//! 编辑器界面扩展（xdeditor 菜单）、注入补丁框架，支持可勾选启停的补丁模块。
 //!
 //! 用法：
 //!   sce_app_editor-patch                      # 独立运行：启动后选择项目目录
@@ -13,7 +13,7 @@
 mod core;
 
 use clap::Parser;
-use core::{kernel, locate, modules, EditorTarget};
+use core::{kernel, locate, log, modules, EditorTarget};
 use std::path::PathBuf;
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -43,8 +43,8 @@ fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(format!("{APP_NAME} v{APP_VERSION}"))
-            .with_inner_size([760.0, 600.0])
-            .with_min_inner_size([640.0, 480.0]),
+            .with_inner_size([780.0, 640.0])
+            .with_min_inner_size([660.0, 500.0]),
         ..Default::default()
     };
 
@@ -93,14 +93,12 @@ struct EditorPatchApp {
     tab: Tab,
     /// 当前项目根
     project_root: Option<PathBuf>,
-    /// 定位结果（编辑器 common 包等）
+    /// 定位结果（编辑器根 + 各包目录）
     target: Option<EditorTarget>,
     /// 定位失败原因
     locate_error: String,
-    /// 内核状态
-    kernel_status: kernel::KernelStatus,
-    /// 是否有 isolation.lua 备份
-    has_backup: bool,
+    /// 各补丁点状态
+    statuses: Vec<kernel::PatchStatus>,
     /// 内置补丁模块
     modules: Vec<modules::PatchModule>,
     /// 已启用的模块 id
@@ -115,8 +113,7 @@ impl EditorPatchApp {
             project_root: None,
             target: None,
             locate_error: String::new(),
-            kernel_status: kernel::KernelStatus::Unknown,
-            has_backup: false,
+            statuses: Vec::new(),
             modules: modules::builtin_modules(),
             enabled: Vec::new(),
             status: String::new(),
@@ -129,34 +126,51 @@ impl EditorPatchApp {
         app
     }
 
+    fn editor_root(&self) -> Option<&std::path::Path> {
+        self.target.as_ref().map(|t| t.editor_root.as_path())
+    }
+
+    /// 内核（isolation 补丁点）是否已应用：决定补丁模块是否可操作
+    fn kernel_applied(&self) -> bool {
+        self.statuses
+            .iter()
+            .any(|s| s.label.contains("isolation") && s.status == kernel::FileStatus::Applied)
+    }
+
     fn set_project(&mut self, root: PathBuf) {
         self.project_root = Some(root);
         self.refresh();
     }
 
-    /// 重新定位 + 查询状态
+    /// 重新定位 + 检查全部补丁点状态
     fn refresh(&mut self) {
         let Some(root) = self.project_root.clone() else {
             return;
         };
         match locate::locate(&root) {
             Ok(target) => {
-                self.kernel_status = kernel::status(&target);
-                self.has_backup = core::backup::has_backup(&target.backup_tag(), "isolation.lua");
-                self.enabled = modules::enabled_modules(&target.common_dir);
+                self.statuses = kernel::check(&target);
+                self.enabled = target
+                    .common_dir()
+                    .map(|c| modules::enabled_modules(&c))
+                    .unwrap_or_default();
                 self.locate_error.clear();
-                self.status = format!(
-                    "已定位：编辑器版本 {}，script 包 {}",
-                    target.api_version, target.script_version
+                let script_ver = target.package_version("script").unwrap_or(0);
+                self.status = format!("已定位：编辑器版本 {}，script 包 {}", target.api_version, script_ver);
+                log::log(
+                    Some(&target.editor_root),
+                    "INFO",
+                    &format!("已加载项目: {}", root.display()),
                 );
                 self.target = Some(target);
             }
             Err(e) => {
                 self.target = None;
                 self.enabled.clear();
-                self.kernel_status = kernel::KernelStatus::Unknown;
+                self.statuses.clear();
                 self.locate_error = e.clone();
                 self.status = format!("定位失败: {e}");
+                log::log(None, "ERROR", &format!("定位失败: {e}"));
             }
         }
     }
@@ -255,55 +269,67 @@ impl EditorPatchApp {
         };
 
         // 定位信息
-        egui::Grid::new("kernel_info").num_columns(2).show(ui, |ui| {
+        ui.horizontal(|ui| {
             ui.label("编辑器版本：");
             ui.monospace(&target.api_version);
-            ui.end_row();
+            ui.separator();
             ui.label("编辑器目录：");
             ui.monospace(target.editor_root.display().to_string());
-            ui.end_row();
-            ui.label("script 包版本：");
-            ui.monospace(target.script_version.to_string());
-            ui.end_row();
-            ui.label("common 目录：");
-            ui.monospace(target.common_dir.display().to_string());
-            ui.end_row();
-            ui.label("内核状态：");
-            match self.kernel_status {
-                kernel::KernelStatus::NotApplied => {
-                    ui.label("未应用");
-                }
-                kernel::KernelStatus::Applied => {
-                    ui.colored_label(egui::Color32::from_rgb(0x3a, 0xa0, 0x50), "已应用");
-                }
-                kernel::KernelStatus::Unknown => {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(0xd0, 0x50, 0x50),
-                        "无法识别（isolation.lua 缺失或格式不符）",
-                    );
-                }
-            }
-            ui.end_row();
-            ui.label("源文件备份：");
-            ui.label(if self.has_backup { "已备份" } else { "无" });
-            ui.end_row();
         });
+        ui.add_space(8.0);
+
+        // 各补丁点状态
+        ui.label("补丁点状态：");
+        ui.add_space(4.0);
+        let mut any_not_applied = false;
+        let mut any_applied = false;
+        for s in &self.statuses {
+            ui.horizontal(|ui| {
+                match s.status {
+                    kernel::FileStatus::Applied => {
+                        any_applied = true;
+                        ui.colored_label(egui::Color32::from_rgb(0x3a, 0xa0, 0x50), "● 已应用");
+                    }
+                    kernel::FileStatus::NotApplied => {
+                        any_not_applied = true;
+                        ui.colored_label(egui::Color32::from_rgb(0xc0, 0x90, 0x30), "○ 未应用");
+                    }
+                    kernel::FileStatus::Missing => {
+                        ui.colored_label(egui::Color32::from_rgb(0xd0, 0x50, 0x50), "✘ 文件缺失");
+                    }
+                }
+                ui.label(s.label).on_hover_text(&s.path);
+                if s.has_backup {
+                    ui.monospace("（有备份）");
+                }
+            });
+        }
+        // 覆盖提示：部分应用 = 可能被编辑器升级覆盖
+        if any_applied && any_not_applied {
+            ui.add_space(4.0);
+            ui.colored_label(
+                egui::Color32::from_rgb(0xc0, 0x90, 0x30),
+                "检测到部分补丁点未应用：可能被编辑器升级覆盖，点击「应用补丁」重新应用即可。",
+            );
+        }
         ui.add_space(12.0);
 
         // 操作
         ui.horizontal(|ui| {
             if ui.button("应用补丁").clicked() {
                 let Some(target) = &self.target else { return };
+                log::log(Some(&target.editor_root), "INFO", "用户操作：应用补丁");
                 match kernel::apply(target) {
-                    Ok(msg) => self.status = format!("应用成功：{msg}（重启星火编辑器后生效）"),
+                    Ok(msg) => self.status = format!("应用成功（重启星火编辑器后生效）：\n{msg}"),
                     Err(e) => self.status = format!("应用失败: {e}"),
                 }
                 self.refresh();
             }
             if ui.button("还原补丁").clicked() {
                 let Some(target) = &self.target else { return };
+                log::log(Some(&target.editor_root), "INFO", "用户操作：还原补丁");
                 match kernel::restore(target) {
-                    Ok(msg) => self.status = format!("还原成功：{msg}（重启星火编辑器后生效）"),
+                    Ok(msg) => self.status = format!("还原成功（重启星火编辑器后生效）：\n{msg}"),
                     Err(e) => self.status = format!("还原失败: {e}"),
                 }
                 self.refresh();
@@ -313,14 +339,28 @@ impl EditorPatchApp {
             }
         });
         ui.add_space(8.0);
-        ui.label("「应用补丁」会解锁 isolation.lua 中被禁用的函数并注入补丁框架入口；");
+        ui.label("「应用补丁」解锁编辑器被禁用的函数、注入补丁框架与菜单入口；");
         ui.label("「还原补丁」用备份原样还原编辑器源文件，并移除全部补丁模块。");
-        if let Ok(root) = core::backup::backup_root() {
-            ui.add_space(4.0);
+        ui.label("补丁状态会随「刷新状态」实时检测：编辑器升级覆盖补丁后重新应用即可。");
+
+        // 备份 / 日志目录
+        if let Some(root) = self.editor_root() {
+            let data_dir = root.join("bgd_editor_patch");
+            ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(format!("备份目录：{}", root.display()));
+                ui.label(format!("备份目录：{}", data_dir.join("backup").display()));
                 if ui.button("打开").clicked() {
-                    let _ = std::process::Command::new("explorer").arg(&root).spawn();
+                    let _ = std::process::Command::new("explorer")
+                        .arg(data_dir.join("backup"))
+                        .spawn();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label(format!("日志文件：{}", log::log_path(Some(root)).display()));
+                if ui.button("打开").clicked() {
+                    let _ = std::process::Command::new("explorer")
+                        .arg(log::log_path(Some(root)))
+                        .spawn();
                 }
             });
         }
@@ -337,7 +377,7 @@ impl EditorPatchApp {
             ui.label("定位失败，请先在「内核」标签页检查");
             return;
         }
-        if self.kernel_status != kernel::KernelStatus::Applied {
+        if !self.kernel_applied() {
             ui.label("内核补丁尚未应用，请先在「内核」标签页点击「应用补丁」。");
             ui.label("补丁模块依赖内核注入的框架入口才会被加载。");
             return;
@@ -364,15 +404,30 @@ impl EditorPatchApp {
         if let Some((idx, on)) = toggled {
             let Some(target) = &self.target else { return };
             let m = &self.modules[idx];
-            match modules::set_module(&target.common_dir, m, on) {
+            let result = target
+                .common_dir()
+                .and_then(|common| modules::set_module(&common, m, on));
+            match result {
                 Ok(()) => {
                     self.status = format!(
                         "模块「{}」已{}（重启星火编辑器后生效）",
                         m.name,
                         if on { "启用" } else { "关闭" }
                     );
+                    log::log(
+                        Some(&target.editor_root),
+                        "INFO",
+                        &format!("模块[{}]{}", m.id, if on { "启用" } else { "关闭" }),
+                    );
                 }
-                Err(e) => self.status = format!("操作失败: {e}"),
+                Err(e) => {
+                    self.status = format!("操作失败: {e}");
+                    log::log(
+                        Some(&target.editor_root),
+                        "ERROR",
+                        &format!("模块[{}]操作失败: {e}", m.id),
+                    );
+                }
             }
             self.refresh();
         }
@@ -385,7 +440,9 @@ impl EditorPatchApp {
             ui.label(
                 "【本应用的作用】\n\
                  编辑器补丁（sce_app_editor-patch）用于给星火编辑器打补丁，扩展编辑器自身能力：\n\
-                 · 内核补丁：解锁编辑器脚本中被禁用的函数（io/os/debug 等），并注入补丁框架入口。\n\
+                 · 内核补丁（多库）：\n\
+                   - script/common/isolation.lua：解锁被禁用的函数（io/os/debug 等），注入补丁框架入口\n\
+                   - xdeditor/ui/menu_bar.lua：顶部菜单「帮助」下增加 bgd_sce_tools 入口\n\
                  · 补丁模块：在内核之上，可勾选启用/关闭的功能模块。\n\
                  \n\
                  【使用方法】\n\
@@ -395,13 +452,15 @@ impl EditorPatchApp {
                  \n\
                  【重要】\n\
                  · 应用补丁 / 还原补丁 / 启停模块后，必须【重启星火编辑器】才能生效！\n\
-                 · 首次应用补丁前会自动备份编辑器原始文件，「还原补丁」可随时恢复原状。\n\
-                 · 星火编辑器更新（script 包版本变化）后补丁会失效，重新「应用补丁」即可。\n\
+                 · 星火编辑器升级可能覆盖补丁：打开本应用点「刷新状态」即可检测，\n\
+                   显示「未应用」时点「应用补丁」重新应用即可（已启用的模块会保留）。\n\
                  \n\
                  【安全性】\n\
-                 · 修改编辑器源文件前必先备份（备份目录见「内核」标签页）。\n\
+                 · 修改编辑器源文件前必先备份（备份在 <编辑器目录>/bgd_editor_patch/backup/，\n\
+                   随编辑器数据走，本应用卸载/重装不会丢）。\n\
+                 · 编辑器源文件有加密与明文两种，本应用自动识别并保持原格式写回。\n\
                  · 写入采用临时文件原子替换，避免写一半损坏编辑器。\n\
-                 · 检测到文件格式不符会中止操作，不会蛮干。",
+                 · 操作日志记录在 <编辑器目录>/bgd_editor_patch/log/editor-patch.log。",
             );
         });
     }

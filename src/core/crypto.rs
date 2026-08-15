@@ -1,7 +1,8 @@
-//! 星火编辑器脚本包（common 包）的 XOR 加解密。
+//! 星火编辑器脚本包（common 包等）的 XOR 加解密。
 //!
-//! 编辑器 `Res/_m/script/<版本>/script/` 下的 `.lua` 文件全部加密：
-//! 前 4 字节为 magic 标识 `TNND`，其余字节与密钥 `CREATEEASY` 循环异或。
+//! 加密格式：前 4 字节为 magic 标识 `TNND`，其余字节与密钥 `CREATEEASY` 循环异或。
+//! **注意**：编辑器源码并非全部加密，读文件时按 magic 头判断是否加密，
+//! 写回时保持原格式（加密→加密写回，明文→明文写回）。
 
 use std::fs;
 use std::path::Path;
@@ -16,7 +17,7 @@ pub fn is_encrypted(data: &[u8]) -> bool {
     data.starts_with(&MAGIC)
 }
 
-/// 解密：去掉 4 字节头，其余与密钥循环异或
+/// 解密：去掉 4 字节头，其余与密钥循环异或（调用前需自行确认 is_encrypted）
 pub fn decrypt(data: &[u8]) -> Result<Vec<u8>, String> {
     if !is_encrypted(data) {
         return Err("不是预期的加密格式（缺少 TNND 头）".to_string());
@@ -39,16 +40,41 @@ fn xor(data: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// 读取并解密一个 lua 文件为文本
-pub fn read_lua(path: &Path) -> Result<String, String> {
-    let raw = fs::read(path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
-    let plain = decrypt(&raw)?;
-    String::from_utf8(plain).map_err(|e| format!("{} 解密后不是有效 UTF-8: {e}", path.display()))
+/// 一个读出的 lua 文件：文本 + 原始是否加密（写回时保持原格式）
+pub struct LuaText {
+    pub text: String,
+    pub encrypted: bool,
 }
 
-/// 加密写入 lua 文件（先写临时文件再替换，避免写一半损坏编辑器源文件）
-pub fn write_lua(path: &Path, text: &str) -> Result<(), String> {
-    write_atomic(path, &encrypt(text.as_bytes()))
+/// 读取 lua 文件为文本：加密的解密，明文的原样读取
+pub fn read_lua(path: &Path) -> Result<LuaText, String> {
+    let raw = fs::read(path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
+    if is_encrypted(&raw) {
+        let plain = decrypt(&raw)?;
+        let text = String::from_utf8(plain)
+            .map_err(|e| format!("{} 解密后不是有效 UTF-8: {e}", path.display()))?;
+        Ok(LuaText {
+            text,
+            encrypted: true,
+        })
+    } else {
+        let text = String::from_utf8(raw)
+            .map_err(|e| format!("{} 不是有效 UTF-8: {e}", path.display()))?;
+        Ok(LuaText {
+            text,
+            encrypted: false,
+        })
+    }
+}
+
+/// 写回 lua 文件：按 LuaText 记录的原格式（加密/明文），原子替换
+pub fn write_lua(path: &Path, lua: &LuaText) -> Result<(), String> {
+    let data = if lua.encrypted {
+        encrypt(lua.text.as_bytes())
+    } else {
+        lua.text.as_bytes().to_vec()
+    };
+    write_atomic(path, &data)
 }
 
 /// 原子写：先写同目录临时文件，再替换目标

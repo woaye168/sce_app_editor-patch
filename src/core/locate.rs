@@ -1,36 +1,85 @@
-//! 从项目路径定位星火编辑器的 common 脚本包目录。
+//! 从项目路径定位星火编辑器的脚本包目录。
 //!
 //! 定位链：
 //! 1. `<项目>/project/map_settings.json` → `api_version`（编辑器版本号，如 13）
 //! 2. `<项目>/script/tsconfig.json` → `compilerOptions.typeRoots` 任意一条，
 //!    形如 `D:/sce_online/Update/editor-pd.spark.xd.com/Res/_m/...`，截取编辑器根目录
-//! 3. `<编辑器根>/api_pak_version.json` → `[api_version].script` 拿到 script 包版本号
-//! 4. common 目录 = `<编辑器根>/Res/_m/script/<script版本>/script/common`
+//! 3. `<编辑器根>/api_pak_version.json` → `[api_version].<包名>` 拿包版本号，
+//!    `#package_path.<包名>` 拿包路径前缀
+//! 4. 包目录 = `<编辑器根>/<包路径前缀>/<版本>/<包名>`
+//!    如 script 包 → `Res/_m/script/199/script`（其下 common 即 common 包）
+//!    如 xdeditor 包 → `Res/_m/xdeditor/160/xdeditor`
 
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// 一次定位的全部结果
+/// 一次定位的全部结果（支持多库）
 pub struct EditorTarget {
     /// 编辑器版本号（map_settings.json 的 api_version，如 "13"）
     pub api_version: String,
     /// 编辑器更新根目录（如 D:/sce_online/Update/editor-pd.spark.xd.com）
     pub editor_root: PathBuf,
-    /// script（common）包版本号（如 199）
-    pub script_version: u64,
-    /// common 包目录（.../Res/_m/script/<ver>/script/common）
-    pub common_dir: PathBuf,
+    /// api_pak_version.json 全文（含 #package_path 与各版本包清单）
+    pak: Value,
 }
 
 impl EditorTarget {
-    pub fn isolation_lua(&self) -> PathBuf {
-        self.common_dir.join("isolation.lua")
+    /// 指定包的版本号（api_pak_version.json → [api_version][包名]）
+    pub fn package_version(&self, name: &str) -> Result<u64, String> {
+        self.pak
+            .get(&self.api_version)
+            .and_then(|v| v.get(name))
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| {
+                format!(
+                    "api_pak_version.json 中找不到版本 {} 的 {} 包版本号",
+                    self.api_version, name
+                )
+            })
     }
 
-    /// 备份分组键：编辑器版本 + script 包版本
-    pub fn backup_tag(&self) -> String {
-        format!("api{}_script{}", self.api_version, self.script_version)
+    /// 指定包的路径前缀（api_pak_version.json → #package_path[包名]，缺省 `Res/_m/<包名>`）
+    fn package_path(&self, name: &str) -> String {
+        self.pak
+            .get("#package_path")
+            .and_then(|m| m.get(name))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("Res/_m/{name}"))
+    }
+
+    /// 指定包的真实目录：<编辑器根>/<包路径前缀>/<版本>/<包名>
+    pub fn package_dir(&self, name: &str) -> Result<PathBuf, String> {
+        let version = self.package_version(name)?;
+        let dir = self
+            .editor_root
+            .join(self.package_path(name))
+            .join(version.to_string())
+            .join(name);
+        if !dir.is_dir() {
+            return Err(format!("{name} 包目录不存在: {}", dir.display()));
+        }
+        Ok(dir)
+    }
+
+    /// common 包目录（script 包下的 common 子目录）
+    pub fn common_dir(&self) -> Result<PathBuf, String> {
+        let dir = self.package_dir("script")?.join("common");
+        if !dir.join("isolation.lua").is_file() {
+            return Err(format!("common 包缺少 isolation.lua: {}", dir.display()));
+        }
+        Ok(dir)
+    }
+
+    /// 备份分组：<api版本>/<包名_版本>，如 `api13/script_199`
+    pub fn backup_group(&self, pkg: &str) -> Result<String, String> {
+        Ok(format!(
+            "api{}/{}_{}",
+            self.api_version,
+            pkg,
+            self.package_version(pkg)?
+        ))
     }
 }
 
@@ -42,28 +91,16 @@ pub fn is_valid_project(dir: &Path) -> bool {
 pub fn locate(project_root: &Path) -> Result<EditorTarget, String> {
     let api_version = read_api_version(project_root)?;
     let editor_root = find_editor_root(project_root)?;
-    let script_version = read_script_version(&editor_root, &api_version)?;
+    let pak = read_api_pak(&editor_root)?;
 
-    let common_dir = editor_root
-        .join("Res")
-        .join("_m")
-        .join("script")
-        .join(script_version.to_string())
-        .join("script")
-        .join("common");
-    if !common_dir.join("isolation.lua").is_file() {
-        return Err(format!(
-            "common 包目录不存在或缺少 isolation.lua: {}",
-            common_dir.display()
-        ));
-    }
-
-    Ok(EditorTarget {
+    let target = EditorTarget {
         api_version,
         editor_root,
-        script_version,
-        common_dir,
-    })
+        pak,
+    };
+    // 校验最常用的 script/common 包可达
+    target.common_dir()?;
+    Ok(target)
 }
 
 /// 第 1 步：读 map_settings.json 的 api_version
@@ -115,18 +152,11 @@ fn find_editor_root(project_root: &Path) -> Result<PathBuf, String> {
     Err("tsconfig.json 的 typeRoots 中没有包含 Res/_m 的路径，无法定位编辑器目录".to_string())
 }
 
-/// 第 3 步：api_pak_version.json → [api_version].script
-fn read_script_version(editor_root: &Path, api_version: &str) -> Result<u64, String> {
+/// 第 3 步：读 api_pak_version.json 全文
+fn read_api_pak(editor_root: &Path) -> Result<Value, String> {
     let path = editor_root.join("api_pak_version.json");
     let text = fs::read_to_string(&path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
-    let json: Value =
-        serde_json::from_str(&text).map_err(|e| format!("解析 {} 失败: {e}", path.display()))?;
-    json.get(api_version)
-        .and_then(|v| v.get("script"))
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| {
-            format!("api_pak_version.json 中找不到版本 {api_version} 的 script 包版本号")
-        })
+    serde_json::from_str(&text).map_err(|e| format!("解析 {} 失败: {e}", path.display()))
 }
 
 /// 去除 JSON 中的 `//` 行注释与 `/* */` 块注释（容忍手写 tsconfig），字符串内的内容不动
@@ -190,13 +220,15 @@ mod tests {
         let project = Path::new(r"C:\Users\woaye\Documents\SCE Projects\test_res002");
         let target = locate(project).unwrap();
         assert_eq!(target.api_version, "13");
-        assert!(target.script_version > 0);
-        assert!(target.isolation_lua().is_file());
+        assert!(target.package_version("script").unwrap() > 0);
+        assert!(target.common_dir().unwrap().join("isolation.lua").is_file());
+        let xdeditor = target.package_dir("xdeditor").unwrap();
+        assert!(xdeditor.join("ui").join("menu_bar.lua").is_file());
         println!(
-            "editor_root={} script={} common={}",
+            "editor_root={} script={} xdeditor={}",
             target.editor_root.display(),
-            target.script_version,
-            target.common_dir.display()
+            target.package_version("script").unwrap(),
+            target.package_version("xdeditor").unwrap(),
         );
     }
 }

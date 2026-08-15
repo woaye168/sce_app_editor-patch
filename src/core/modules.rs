@@ -11,6 +11,7 @@
 //!
 //! 启用状态即文件系统状态（扫描框架目录下的模块目录），无需额外状态文件。
 //! 内核补丁注入的 `require 'sce_app_editor-patch.main'` 会加载该入口。
+//! 框架文件是本应用新建的（非编辑器原文件），一律加密写入（与包内其他文件一致）。
 
 use super::crypto;
 use std::fs;
@@ -33,12 +34,20 @@ pub struct PatchModule {
 
 /// 全部内置补丁模块（新增模块在此注册 + patches/ 下放文件）
 pub fn builtin_modules() -> Vec<PatchModule> {
-    vec![PatchModule {
-        id: "hello",
-        name: "示例补丁",
-        description: "验证补丁链路：加载时输出日志，暴露全局标记 __EDITOR_PATCH__，并报告关键函数的解禁状态。",
-        files: &[("main.lua", include_str!("../../patches/hello/main.lua"))],
-    }]
+    vec![
+        PatchModule {
+            id: "hello",
+            name: "示例补丁",
+            description: "验证补丁链路：加载时输出日志，暴露全局标记 __EDITOR_PATCH__，并报告关键函数的解禁状态。",
+            files: &[("main.lua", include_str!("../../patches/hello/main.lua"))],
+        },
+        PatchModule {
+            id: "unwatch",
+            name: "解除项目文件监听",
+            description: "移除并拦截编辑器对项目目录的文件变更监听（io.remove_watch / io.add_watch），外部修改项目文件时不再弹出重载提示。",
+            files: &[("main.lua", include_str!("../../patches/unwatch/main.lua"))],
+        },
+    ]
 }
 
 /// 框架目录：<common>/sce_app_editor-patch
@@ -73,7 +82,7 @@ pub fn set_module(common_dir: &Path, module: &PatchModule, enable: bool) -> Resu
             if let Some(parent) = path.parent() {
                 fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
             }
-            crypto::write_lua(&path, content)?;
+            write_framework_lua(&path, content)?;
         }
     } else if dir.exists() {
         fs::remove_dir_all(&dir).map_err(|e| format!("删除 {} 失败: {e}", dir.display()))?;
@@ -105,5 +114,16 @@ pub fn regenerate_entry(common_dir: &Path) -> Result<(), String> {
          end\n",
     );
 
-    crypto::write_lua(&dir.join("main.lua"), &text)
+    write_framework_lua(&dir.join("main.lua"), &text)
+}
+
+/// 框架文件一律加密写入（与 common 包内其他文件一致）
+fn write_framework_lua(path: &Path, text: &str) -> Result<(), String> {
+    crypto::write_lua(
+        path,
+        &crypto::LuaText {
+            text: text.to_string(),
+            encrypted: true,
+        },
+    )
 }

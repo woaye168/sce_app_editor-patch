@@ -14,6 +14,10 @@
 - **CLI**：clap（`--project-path`）
 - **并发**：std::thread::scope 分块并行（整库解密/复制），无额外依赖
 
+## 代码规范
+
+- **模块拆分**：单文件代码量接近 500 行时，必须考虑按职责拆分模块，避免单文件过大难以维护。
+
 ## 目录结构
 
 ```
@@ -142,8 +146,6 @@ git tag v0.x.0 && git push origin v0.x.0   # 触发 CI：注入版本号 → 构
 | C# 扩展（bgd_mcp_bridge） | 重新编译后把 dll 复制到 `<编辑器根>../version-13/`（即 `D:/sce_online/version-13`），**需重启编辑器**才能生效 |
 | Lua 补丁（xdeditor 包） | 修改后复制到 `<编辑器根>/res/_m/xdeditor/<包版本号>/xdeditor/sce_app_editor-patch/<补丁模块目录>` 同层级 |
 | Lua 补丁（script 包） | 修改后复制到 `<编辑器根>/res/_m/script/<包版本号>/script/common/sce_app_editor-patch/<补丁模块目录>` 同层级 |
-
-> 说明：两个 Lua 补丁目标即「库 require 根下的补丁目录」（xdeditor 包根 / script 包 `common/` 下），`<补丁模块目录>` 与 `patches/<pkg>/<id>/` 同名；`<编辑器根>` 见「编辑器包定位链」（本机为 `D:/sce_online/update/editor-pd.spark.xd.com`，注意首字母大小写）。
 
 启动编辑器（自测用示例，api 版本 13）：
 

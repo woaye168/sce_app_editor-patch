@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <!-- 本机可能只有更高版本运行时（如 .NET 10），允许前滚 -->
+    <RollForward>LatestMajor</RollForward>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>x64</Platforms>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <RootNamespace>BgdMakeCatalog</RootNamespace>
+    <AssemblyName>make_catalog</AssemblyName>
+    <!-- 宿主程序集目录：本地默认星火编辑器 version-13，可用 -p:SceHostDir=<目录> 覆盖 -->
+    <SceHostDir Condition="'$(SceHostDir)' == ''">D:/sce_online/version-13</SceHostDir>
+  </PropertyGroup>
+
+</Project>

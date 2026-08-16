@@ -57,7 +57,7 @@ public sealed class EditorBridge
         _pending[id] = tcs;
         try
         {
-            var payload = JsonSerializer.Serialize(new { id, method, @params = paramsObj });
+            var payload = JsonOut.Serialize(new { id, method, @params = paramsObj });
             SendOnUiThread(payload);
 
             var timeoutTask = Task.Delay(timeoutMs);

@@ -1,0 +1,5337 @@
+{
+  "engine_version": "13",
+  "generated_at": "2026-08-16 22:34:49",
+  "capabilities": [
+    {
+      "id": "svc.FileSystem.SetCurrentDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SetCurrentDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "pathName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.CreateDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "CreateDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "pathName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.SetExecuteConsoleCommands",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SetExecuteConsoleCommands",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "enable",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.SystemCommand",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SystemCommand",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "commandLine",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "redirectStdOutToLog",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.SystemRun",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SystemRun",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "arguments",
+          "type": "List<string>",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.SystemCommandAsync",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SystemCommandAsync",
+      "assembly": "sce",
+      "static": false,
+      "returns": "uint",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "commandLine",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.SystemRunAsync",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SystemRunAsync",
+      "assembly": "sce",
+      "static": false,
+      "returns": "uint",
+      "risk": "write",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "arguments",
+          "type": "List<string>",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.SystemOpen",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SystemOpen",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.Copy",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "Copy",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "srcFileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "destFileName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.CopyNotDecode",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "CopyNotDecode",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "srcFileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "destFileName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.CopyToFolder",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "CopyToFolder",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "srcPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "destFolderPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "ignoreSymLink",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "notDecode",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.Rename",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "Rename",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "srcFileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "destFileName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.Delete",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "Delete",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.DeleteAll",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "DeleteAll",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.DeleteDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "DeleteDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "dir",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "args",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.CreateSymbolLink",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "CreateSymbolLink",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "existFileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "isFolder",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.RegisterPath",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "RegisterPath",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "pathName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.SetLastModifiedTime",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SetLastModifiedTime",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "newTime",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.GetExecuteConsoleCommands",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetExecuteConsoleCommands",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.FileSystem.HasRegisteredPaths",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "HasRegisteredPaths",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.FileSystem.CheckAccess",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "CheckAccess",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "pathName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.GetLastModifiedTime",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetLastModifiedTime",
+      "assembly": "sce",
+      "static": false,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.FileExists",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "FileExists",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "fileName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.DirExists",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "DirExists",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "pathName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.ScanDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "ScanDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "List<string>",
+      "risk": "read",
+      "params": [
+        {
+          "name": "pathName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "filter",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "flags",
+          "type": "uint",
+          "required": true
+        },
+        {
+          "name": "recursive",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.GetResourceDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetResourceDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.FileSystem.GetUpdateResDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetUpdateResDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.FileSystem.GetAppPreferencesDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetAppPreferencesDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "org",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "app",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.GetTemporaryDir",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetTemporaryDir",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.FileSystem.GetUpdateIp",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetUpdateIp",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.FileSystem.SetUpdateIp",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "SetUpdateIp",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "ip",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.AddWatch",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "AddWatch",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "watchPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "isMapPath",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "enableDelete",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.RemoveWatch",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "RemoveWatch",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "watchPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.PauseWatch",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "PauseWatch",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "watchPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "pause",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "enableDelete",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.AddSkip(string,string,bool)",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "AddSkip",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "watchPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "skipPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "alwaysSkip",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.AddSkip(string)",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "AddSkip",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "skipPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.RemoveSkip(string,string)",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "RemoveSkip",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "watchPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "skipPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.RemoveSkip(string)",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "RemoveSkip",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "skipPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.ClearSkip",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "ClearSkip",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "watchPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FileSystem.CreateDesktopShortCut",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "CreateDesktopShortCut",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "exe",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "desc",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "args",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetObjcetNumberValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetObjcetNumberValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "Single&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SetObjcetNumberValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SetObjcetNumberValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "float",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetObjcetIntValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetObjcetIntValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "Int32&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SetObjcetIntValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SetObjcetIntValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetObjcetBoolValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetObjcetBoolValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "Boolean&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SetObjcetBoolValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SetObjcetBoolValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetObjcetHint",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetObjcetHint",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetEnumItems",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetEnumItems",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetAutoSaveStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetAutoSaveStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "status",
+          "type": "Nullable`1&",
+          "required": true
+        },
+        {
+          "name": "interval",
+          "type": "Nullable`1&",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "String&",
+          "required": true
+        },
+        {
+          "name": "keepTime",
+          "type": "Nullable`1&",
+          "required": true
+        },
+        {
+          "name": "backup",
+          "type": "Nullable`1&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SetAutoSaveStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SetAutoSaveStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "status",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "interval",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "keepTime",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "backup",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetDebugStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetDebugStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "autoSave",
+          "type": "Nullable`1&",
+          "required": true
+        },
+        {
+          "name": "autoBackUp",
+          "type": "Nullable`1&",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "String&",
+          "required": true
+        },
+        {
+          "name": "useFixedLuaSeed",
+          "type": "Nullable`1&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SetDebugStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SetDebugStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "autoSave",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "autoBackUp",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "useFixedLuaSeed",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetUploadStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetUploadStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "danger",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "autoBackUp",
+          "type": "Nullable`1&",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "String&",
+          "required": true
+        },
+        {
+          "name": "backUpNum",
+          "type": "Nullable`1&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SetUploadStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SetUploadStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "autoBackUp",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "backUpNum",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.GetChangeAPIStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "GetChangeAPIStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "autoBackUp",
+          "type": "Nullable`1&",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "String&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SetChangeAPIStatus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SetChangeAPIStatus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "autoBackUp",
+          "type": "bool",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.SelectFolder",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "SelectFolder",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.EditorSettingsManager.OpenPath",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "OpenPath",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.EditorSettingsManager.CreateModule",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EditorSettingsManager",
+      "method": "CreateModule",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "module",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.InitBackbufferViewport",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "InitBackbufferViewport",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.SceneManager.CreateViewport",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "CreateViewport",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "uiViewport",
+          "type": "IntPtr",
+          "required": true
+        },
+        {
+          "name": "ownerWindow",
+          "type": "IntPtr",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.DestroyViewport",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "DestroyViewport",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.ShowScene",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "ShowScene",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.ShowingScene",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "ShowingScene",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.AddViewportToScene",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "AddViewportToScene",
+      "assembly": "sce",
+      "static": false,
+      "returns": "Node",
+      "risk": "write",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.HideScene",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "HideScene",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.ClearViewport",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "ClearViewport",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.SetRenderPath",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "SetRenderPath",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "renderPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.IsSceneFocus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "IsSceneFocus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.IsMouseHoverScene",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "IsMouseHoverScene",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.RegisterController",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "RegisterController",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "controller",
+          "type": "SceneController",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.UnregisterController",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "UnregisterController",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "controller",
+          "type": "SceneController",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.DestoryScene",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "DestoryScene",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.GetWorld",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "GetWorld",
+      "assembly": "sce",
+      "static": false,
+      "returns": "IntPtr?",
+      "risk": "read",
+      "params": [
+        {
+          "name": "sceneName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.SetViewportClusterEnabled",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "SetViewportClusterEnabled",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "enable",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.QueueUpdate",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "QueueUpdate",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.ShowGameInEditor",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "ShowGameInEditor",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.HideGameInEditor",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "HideGameInEditor",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.DisconnectGameInEditor",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "DisconnectGameInEditor",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.ReconnectGameInEditor",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "ReconnectGameInEditor",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.SceneManager.SetGameUIFocus",
+      "executor": "svc",
+      "type": "SCE.CppInterface.SceneManager",
+      "method": "SetGameUIFocus",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "viewportName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.RegisterPluginFactory",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "RegisterPluginFactory",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "factory",
+          "type": "PluginFactory",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.UnregisterPluginFactory",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "UnregisterPluginFactory",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.GetPluginFactory",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "GetPluginFactory",
+      "assembly": "sce",
+      "static": false,
+      "returns": "PluginFactory",
+      "risk": "read",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.CreatePlugin",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "CreatePlugin",
+      "assembly": "sce",
+      "static": false,
+      "returns": "Plugin",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.DestroyPlugin",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "DestroyPlugin",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.LoadPlugin",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "LoadPlugin",
+      "assembly": "sce",
+      "static": false,
+      "returns": "Plugin",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.PluginCreated",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "PluginCreated",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.UnloadPlugin",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "UnloadPlugin",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.GetPlugin",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "GetPlugin",
+      "assembly": "sce",
+      "static": false,
+      "returns": "Plugin",
+      "risk": "read",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.PluginsManager.CreateOrGetPlugin",
+      "executor": "svc",
+      "type": "SCE.CppInterface.PluginsManager",
+      "method": "CreateOrGetPlugin",
+      "assembly": "sce",
+      "static": false,
+      "returns": "Plugin",
+      "risk": "write",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.VirtualWindowManager.RegisterCreator",
+      "executor": "svc",
+      "type": "SCE.CppInterface.VirtualWindowManager",
+      "method": "RegisterCreator",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "windowType",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "creator",
+          "type": "Delegate",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FWindowManager.GetWindowWinUI",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FWindowManager",
+      "method": "GetWindowWinUI",
+      "assembly": "sce",
+      "static": false,
+      "returns": "FWindowWinUI",
+      "risk": "read",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.FWindowManager.AddFWindow",
+      "executor": "svc",
+      "type": "SCE.CppInterface.FWindowManager",
+      "method": "AddFWindow",
+      "assembly": "sce",
+      "static": false,
+      "returns": "FWindowWinUI",
+      "risk": "write",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "window",
+          "type": "IntPtr",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.ApiManager.GetEditorIsOpenAsk",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "GetEditorIsOpenAsk",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.GetEditorIsAutoSelectApiVersion",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "GetEditorIsAutoSelectApiVersion",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.GetEditorApiVersionChannel",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "GetEditorApiVersionChannel",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.UpdateApiList",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "UpdateApiList",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.GetApiDataList",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "GetApiDataList",
+      "assembly": "sce",
+      "static": false,
+      "returns": "List<ApiData>",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.GetEditorCurrentApi",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "GetEditorCurrentApi",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.SetEditorCurrentApi",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "SetEditorCurrentApi",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "api",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.ApiManager.SetEditorOpenAsk",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "SetEditorOpenAsk",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "isAsk",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.ApiManager.SetEditorIsAutoSelectApiVersion",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "SetEditorIsAutoSelectApiVersion",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "isAutoSelectApiVersion",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.ApiManager.SetEditorApiVersionChannel",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "SetEditorApiVersionChannel",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "channel",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.ApiManager.GetProjectCurrentApi",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "GetProjectCurrentApi",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.GetProjectMapID",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "GetProjectMapID",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.SetProjectCurrentApi",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "SetProjectCurrentApi",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "api",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.ApiManager.BackUpCurrentApi",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "BackUpCurrentApi",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.ApiManager.ChangeApiRestart",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "ChangeApiRestart",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "oldApi",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "newApi",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "noAskEditorApiVersion",
+          "type": "int",
+          "required": false,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "svc.ApiManager.Reload",
+      "executor": "svc",
+      "type": "SCE.CppInterface.ApiManager",
+      "method": "Reload",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.Input.SetMouseButton",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Input",
+      "method": "SetMouseButton",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "button",
+          "type": "uint",
+          "required": true
+        },
+        {
+          "name": "newState",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.Input.SetKey",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Input",
+      "method": "SetKey",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "key",
+          "type": "uint",
+          "required": true
+        },
+        {
+          "name": "scanCode",
+          "type": "uint",
+          "required": true
+        },
+        {
+          "name": "newState",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.Input.SetMouseWheel",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Input",
+      "method": "SetMouseWheel",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "delta",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.Input.SetMouseMotion",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Input",
+      "method": "SetMouseMotion",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "position",
+          "type": "IntVector2",
+          "required": true
+        },
+        {
+          "name": "motion",
+          "type": "IntVector2",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.Time.BeginFrame",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "BeginFrame",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "timeStep",
+          "type": "float",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.Time.EndFrame",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "EndFrame",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.Time.BeforeBeginFrame",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "BeforeBeginFrame",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "timeStep",
+          "type": "float",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.Time.SetTimerPeriod",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "SetTimerPeriod",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "mSec",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.Time.GetFrameNumber",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetFrameNumber",
+      "assembly": "sce",
+      "static": false,
+      "returns": "uint",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.Time.GetTimeStep",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetTimeStep",
+      "assembly": "sce",
+      "static": false,
+      "returns": "float",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.Time.GetTimerPeriod",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetTimerPeriod",
+      "assembly": "sce",
+      "static": false,
+      "returns": "uint",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.Time.GetElapsedTime",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetElapsedTime",
+      "assembly": "sce",
+      "static": false,
+      "returns": "float",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.Time.GetFramesPerSecond",
+      "executor": "svc",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetFramesPerSecond",
+      "assembly": "sce",
+      "static": false,
+      "returns": "float",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.EventManager.SendEvent",
+      "executor": "svc",
+      "type": "SCE.CppInterface.EventManager",
+      "method": "SendEvent",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "eventName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "eventArgs",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.SelectAnimationTrailParticle",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "SelectAnimationTrailParticle",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "callback",
+          "type": "SelectAnimationTrailParticleCB",
+          "required": true
+        },
+        {
+          "name": "multiWindow",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.IsProjectResource",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "IsProjectResource",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "prefabPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.MarkItemDirty",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "MarkItemDirty",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "prefabPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.AutoLabel",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "AutoLabel",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "anim",
+          "type": "EAnimation",
+          "required": true
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.ShowInResourceLibrary",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "ShowInResourceLibrary",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "tab",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "resourcePath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.NotifySelectedMaterialPath",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "NotifySelectedMaterialPath",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "materialPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.NotifyPrefabSetMaterial",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "NotifyPrefabSetMaterial",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "prefabPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "index",
+          "type": "uint",
+          "required": true
+        },
+        {
+          "name": "materialPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpLua.NotifyMaterialUpdatePreviewImage",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpLua",
+      "method": "NotifyMaterialUpdatePreviewImage",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "materialPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "imagePath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpScore.InitScore",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpScore",
+      "method": "InitScore",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "mapName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "uid",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "cb",
+          "type": "HandleScoreInit",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpScoreDataManager.QueryCategory",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpScoreDataManager",
+      "method": "QueryCategory",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "params": [
+        {
+          "name": "rootKey",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "queryCategoryCallback",
+          "type": "QueryCategoryCallbackType",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpScoreDataManager.QueryLabel",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpScoreDataManager",
+      "method": "QueryLabel",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "params": [
+        {
+          "name": "rootKey",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "queryLabelCallback",
+          "type": "QueryLabelCallbackType",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpGoods.QueryGoodInfosByCategory",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpGoods",
+      "method": "QueryGoodInfosByCategory",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "params": [
+        {
+          "name": "categories",
+          "type": "List<string>",
+          "required": true
+        },
+        {
+          "name": "mapSources",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "queryFinish",
+          "type": "OnQueryGoodInfosFinish",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpGoods.QueryGoodInfosByMapNames",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpGoods",
+      "method": "QueryGoodInfosByMapNames",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "params": [
+        {
+          "name": "mapNames",
+          "type": "List<string>",
+          "required": true
+        },
+        {
+          "name": "queryFinish",
+          "type": "OnQueryGoodInfosFinish",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpGoods.QueryGoodInfoByPath",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpGoods",
+      "method": "QueryGoodInfoByPath",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "queryFinish",
+          "type": "OnQueryGoodInfoFinish",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpGoods.GetMyMap",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpGoods",
+      "method": "GetMyMap",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "read",
+      "params": [
+        {
+          "name": "mapType",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "queryFinish",
+          "type": "OnQueryMapInfosFinish",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.CSharpGoods.DownloadFile",
+      "executor": "svc",
+      "type": "SCE.CppInterface.CSharpGoods",
+      "method": "DownloadFile",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "savePath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "onFinish",
+          "type": "OnDownloadFileFinish",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.MaterialPreviewManager.Generate",
+      "executor": "svc",
+      "type": "SCE.CppInterface.MaterialPreviewManager",
+      "method": "Generate",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "materialPath",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "md5",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "onFinish",
+          "type": "OnGenerateFinish",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.MaterialPreviewManager.GetDirectory",
+      "executor": "svc",
+      "type": "SCE.CppInterface.MaterialPreviewManager",
+      "method": "GetDirectory",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.Show",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "Show",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.Attach",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "Attach",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "handle",
+          "type": "IntPtr",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.Detach",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "Detach",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.ResetCanvasPosition",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "ResetCanvasPosition",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.GetMaxTemplatesID",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetMaxTemplatesID",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.NodeExist",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "NodeExist",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.IsOfficialTemplate",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "IsOfficialTemplate",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetNodeName",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetNodeName",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetParentID",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetParentID",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "read",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetStringValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetStringValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetIntValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetIntValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "Int32&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetBoolValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetBoolValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "Int32&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetIntVector2Value",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetIntVector2Value",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "Int32&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetIntVector4Value",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetIntVector4Value",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "z",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "w",
+          "type": "Int32&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetScheme",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetScheme",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "schemeIndex",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "skin",
+          "type": "String&",
+          "required": true
+        },
+        {
+          "name": "colorX",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "colorY",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "colorZ",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "colorW",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "gap",
+          "type": "Single&",
+          "required": true
+        },
+        {
+          "name": "level",
+          "type": "Single&",
+          "required": true
+        },
+        {
+          "name": "thickness",
+          "type": "Single&",
+          "required": true
+        },
+        {
+          "name": "shortHeightScale",
+          "type": "Single&",
+          "required": true
+        },
+        {
+          "name": "longHeightScale",
+          "type": "Single&",
+          "required": true
+        },
+        {
+          "name": "interval",
+          "type": "Int32&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetStringValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetStringValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetIntValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetIntValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetBoolValue",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetBoolValue",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetIntVector2Value",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetIntVector2Value",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetIntVector4Value",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetIntVector4Value",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "x",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "z",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "w",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetScheme",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetScheme",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "schemeIndex",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "skin",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "colorX",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "colorY",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "colorZ",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "colorW",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "gap",
+          "type": "float",
+          "required": true
+        },
+        {
+          "name": "level",
+          "type": "float",
+          "required": true
+        },
+        {
+          "name": "thickness",
+          "type": "float",
+          "required": true
+        },
+        {
+          "name": "shortHeightScale",
+          "type": "float",
+          "required": true
+        },
+        {
+          "name": "longHeightScale",
+          "type": "float",
+          "required": true
+        },
+        {
+          "name": "interval",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetSchemeSize",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetSchemeSize",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "read",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.AddEmptyScheme",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "AddEmptyScheme",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.RemoveScheme",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "RemoveScheme",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "schemeIndex",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetProjectPath",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetProjectPath",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.GetTextureSize",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetTextureSize",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "width",
+          "type": "Int32&",
+          "required": true
+        },
+        {
+          "name": "height",
+          "type": "Int32&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.AddTemplateStartDrag",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "AddTemplateStartDrag",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.AddTemplateDraging",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "AddTemplateDraging",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "x",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.AddTemplate",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "AddTemplate",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "parentId",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.RemoveTemplate",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "RemoveTemplate",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.ReloadAtlas",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "ReloadAtlas",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.Resize",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "Resize",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "x",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "y",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "w",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "h",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.OpenFile",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "OpenFile",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "write",
+      "params": [
+        {
+          "name": "title",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "filter",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "attName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.Copy",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "Copy",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.CanPaste",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "CanPaste",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "params": [
+        {
+          "name": "parentId",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.Paste",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "Paste",
+      "assembly": "sce",
+      "static": false,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "parentId",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.Delete",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "Delete",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetParent",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetParent",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "parentId",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetTemplateName",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetTemplateName",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "templateName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetDragCallback",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetDragCallback",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "callback",
+          "type": "Delegate",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetSelectCallback",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetSelectCallback",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "callback",
+          "type": "Delegate",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.SetTreeChangeCallback",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "SetTreeChangeCallback",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "callback",
+          "type": "Delegate",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetUnitAttributes",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetUnitAttributes",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "attStr",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.GetUnitAttributesString",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "GetUnitAttributesString",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "svc.BloodStripManager.IsHelpIconShow",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "IsHelpIconShow",
+      "assembly": "sce",
+      "static": false,
+      "returns": "bool",
+      "risk": "read",
+      "unsupported": true,
+      "unsupported_reason": "签名含 nint/ref/out/指针，不适于 JSON 调用",
+      "params": [
+        {
+          "name": "tag",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "urlString",
+          "type": "String&",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.BloodStripManager.OpenUrl",
+      "executor": "svc",
+      "type": "SCE.CppInterface.BloodStripManager",
+      "method": "OpenUrl",
+      "assembly": "sce",
+      "static": false,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "url",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "svc.DebugModuleManager.GetPlayerAndTeam",
+      "executor": "svc",
+      "type": "SCE.CppInterface.DebugModuleManager",
+      "method": "GetPlayerAndTeam",
+      "assembly": "sce",
+      "static": false,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.ApplicationExport.ApplicationTick",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ApplicationExport",
+      "method": "ApplicationTick",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.ApplicationExport.FixIME",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ApplicationExport",
+      "method": "FixIME",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.ApplicationExport.RunApplication",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ApplicationExport",
+      "method": "RunApplication",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.ApplicationExport.GetMapPath",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ApplicationExport",
+      "method": "GetMapPath",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.ApplicationExport.GetIPEnv",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ApplicationExport",
+      "method": "GetIPEnv",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.ApplicationArgsExport.AddArg",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ApplicationArgsExport",
+      "method": "AddArg",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "key",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "value",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.ApplicationArgsExport.HasArgs",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ApplicationArgsExport",
+      "method": "HasArgs",
+      "assembly": "sce",
+      "static": true,
+      "returns": "int",
+      "risk": "read",
+      "params": [
+        {
+          "name": "args",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.ProfilerClientExport.SendLog",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ProfilerClientExport",
+      "method": "SendLog",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "logMessage",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Variant.GetTypeName",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Variant",
+      "method": "GetTypeName",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "type",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Variant.GetTypeFromName",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Variant",
+      "method": "GetTypeFromName",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "typeName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.SpringBoneConfig.GetTypeNameStatic",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.SpringBoneConfig",
+      "method": "GetTypeNameStatic",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.EPathExport.PrintErrorCode",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.EPathExport",
+      "method": "PrintErrorCode",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.EPath.PrintErrorCode",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.EPath",
+      "method": "PrintErrorCode",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.LODGroup.GetLODGroupExtensionName",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.LODGroup",
+      "method": "GetLODGroupExtensionName",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.SkeletonEditorSC.GetBackupMdlPath",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.SkeletonEditorSC",
+      "method": "GetBackupMdlPath",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "mdlPath",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.AreaExport.sign_",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.AreaExport",
+      "method": "sign_",
+      "assembly": "sce",
+      "static": true,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "number",
+          "type": "float",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Area.sign_",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Area",
+      "method": "sign_",
+      "assembly": "sce",
+      "static": true,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "number",
+          "type": "float",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.DecorationExport.SetHoldParticleLod",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DecorationExport",
+      "method": "SetHoldParticleLod",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "lod",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.DecorationExport.GetHoldParticleLod",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DecorationExport",
+      "method": "GetHoldParticleLod",
+      "assembly": "sce",
+      "static": true,
+      "returns": "int",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Decoration.SetHoldParticleLod",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Decoration",
+      "method": "SetHoldParticleLod",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "lod",
+          "type": "int",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Decoration.GetHoldParticleLod",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Decoration",
+      "method": "GetHoldParticleLod",
+      "assembly": "sce",
+      "static": true,
+      "returns": "int",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.HiresTimerExport.IsSupported",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.HiresTimerExport",
+      "method": "IsSupported",
+      "assembly": "sce",
+      "static": true,
+      "returns": "bool",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.TimeExport.GetSystemTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TimeExport",
+      "method": "GetSystemTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.TimeExport.GetHiresSystemTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TimeExport",
+      "method": "GetHiresSystemTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "double",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.TimeExport.GetTimeSinceEpoch",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TimeExport",
+      "method": "GetTimeSinceEpoch",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.TimeExport.Sleep",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TimeExport",
+      "method": "Sleep",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "mSec",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.TimeExport.SleepNoStats",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TimeExport",
+      "method": "SleepNoStats",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "mSec",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.HiresTimer.IsSupported",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.HiresTimer",
+      "method": "IsSupported",
+      "assembly": "sce",
+      "static": true,
+      "returns": "bool",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Time.GetSystemTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetSystemTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Time.GetHiresSystemTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetHiresSystemTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "double",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Time.GetTimeSinceEpoch",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetTimeSinceEpoch",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Time.GetTimeStamp()",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetTimeStamp",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Time.GetTimeStamp(string)",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Time",
+      "method": "GetTimeStamp",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "fmt",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Time.Sleep",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Time",
+      "method": "Sleep",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "mSec",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Time.SleepNoStats",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Time",
+      "method": "SleepNoStats",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "mSec",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.VariantExport.GetTypeFromName",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.VariantExport",
+      "method": "GetTypeFromName",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "typeName",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Material.GetTextureUnitName",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Material",
+      "method": "GetTextureUnitName",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "unit",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.ModelExport.GetTotalLoadTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ModelExport",
+      "method": "GetTotalLoadTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "double",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.ModelExport.ClearTotalLoadTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ModelExport",
+      "method": "ClearTotalLoadTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.Model.GetTotalLoadTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Model",
+      "method": "GetTotalLoadTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "double",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Model.ClearTotalLoadTime",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Model",
+      "method": "ClearTotalLoadTime",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.TextureExport.CheckMaxLevels",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TextureExport",
+      "method": "CheckMaxLevels",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "width",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "height",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "requestedLevels",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.TextureExport.CheckMaxLevels_1",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TextureExport",
+      "method": "CheckMaxLevels_1",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "width",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "height",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "depth",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "requestedLevels",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.TextureExport.GetSRVFormat",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TextureExport",
+      "method": "GetSRVFormat",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "format",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.TextureExport.GetDSVFormat",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.TextureExport",
+      "method": "GetDSVFormat",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "format",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Texture.CheckMaxLevels(int,int,uint)",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Texture",
+      "method": "CheckMaxLevels",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "width",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "height",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "requestedLevels",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Texture.CheckMaxLevels(int,int,int,uint)",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Texture",
+      "method": "CheckMaxLevels",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "width",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "height",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "depth",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "requestedLevels",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Texture.GetSRVFormat",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Texture",
+      "method": "GetSRVFormat",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "format",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Texture.GetDSVFormat",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Texture",
+      "method": "GetDSVFormat",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "read",
+      "params": [
+        {
+          "name": "format",
+          "type": "uint",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.FileSystem.GetCurrentDir",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetCurrentDir",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.FileSystem.GetProgramDir",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetProgramDir",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": [
+        {
+          "name": "binaryPath",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.FileSystem.GetUserDocumentsDir",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetUserDocumentsDir",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.FileSystem.GetRootDir",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.FileSystem",
+      "method": "GetRootDir",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.LogExport.WatchAndWrite",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.LogExport",
+      "method": "WatchAndWrite",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "file",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "line",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "level",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.LogExport.Write",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.LogExport",
+      "method": "Write",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "level",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.LogExport.WriteRaw",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.LogExport",
+      "method": "WriteRaw",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "error",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.LogExport.WriteCustomLog",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.LogExport",
+      "method": "WriteCustomLog",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "customLog",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "level",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.LogExport.WriteCustomRaw",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.LogExport",
+      "method": "WriteCustomRaw",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "customLog",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "error",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Log.GetFileName",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Log",
+      "method": "GetFileName",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "cpp.Log.WatchAndWrite",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Log",
+      "method": "WatchAndWrite",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "file",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "line",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "level",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Log.Write",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Log",
+      "method": "Write",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "level",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Log.WriteRaw",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Log",
+      "method": "WriteRaw",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "error",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Log.WriteCustomLog",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Log",
+      "method": "WriteCustomLog",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "customLog",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "level",
+          "type": "int",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.Log.WriteCustomRaw",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.Log",
+      "method": "WriteCustomRaw",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "customLog",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "error",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.ULog.Debug",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ULog",
+      "method": "Debug",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "msg",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        {
+          "name": "lineNumber",
+          "type": "int",
+          "required": false,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "cpp.ULog.Info",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ULog",
+      "method": "Info",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "msg",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        {
+          "name": "lineNumber",
+          "type": "int",
+          "required": false,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "cpp.ULog.Warning",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ULog",
+      "method": "Warning",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "msg",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        {
+          "name": "lineNumber",
+          "type": "int",
+          "required": false,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "cpp.ULog.Error",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.ULog",
+      "method": "Error",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "msg",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": false,
+          "default": ""
+        },
+        {
+          "name": "lineNumber",
+          "type": "int",
+          "required": false,
+          "default": 0
+        }
+      ]
+    },
+    {
+      "id": "cpp.MathExport.FloatToRawIntBits",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.MathExport",
+      "method": "FloatToRawIntBits",
+      "assembly": "sce",
+      "static": true,
+      "returns": "int",
+      "risk": "write",
+      "params": [
+        {
+          "name": "value",
+          "type": "float",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.StringHashExport.Calculate",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.StringHashExport",
+      "method": "Calculate",
+      "assembly": "sce",
+      "static": true,
+      "returns": "uint",
+      "risk": "write",
+      "params": [
+        {
+          "name": "str",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.SceneStatisticsExport.ClearData",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.SceneStatistics.SceneStatisticsExport",
+      "method": "ClearData",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.DataEditor.DataEditor_ObjLog",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DataEditor.DataEditor",
+      "method": "DataEditor_ObjLog",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "level",
+          "type": "enum:EnumObjLogLevel",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.DataEditor.DataEditor_ObjLuaLog",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DataEditor.DataEditor",
+      "method": "DataEditor_ObjLuaLog",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "level",
+          "type": "enum:EnumObjLogLevel",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.DataEditor.DataEditor_Enable",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DataEditor.DataEditor",
+      "method": "DataEditor_Enable",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": [
+        {
+          "name": "isEnable",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.DataEditor.DataEditor_IsMapLoaded_Lua",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DataEditor.DataEditor",
+      "method": "DataEditor_IsMapLoaded_Lua",
+      "assembly": "sce",
+      "static": true,
+      "returns": "string",
+      "risk": "write",
+      "params": [
+        {
+          "name": "refresh",
+          "type": "bool",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "cpp.DataEditor.DataEditor_DoEntryNodeSetValue_Lua",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DataEditor.DataEditor",
+      "method": "DataEditor_DoEntryNodeSetValue_Lua",
+      "assembly": "sce",
+      "static": true,
+      "returns": "bool",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "cpp.DataEditor.DataEditor_ListEntryNode",
+      "executor": "cpp",
+      "type": "SCE.CppInterface.DataEditor.DataEditor",
+      "method": "DataEditor_ListEntryNode",
+      "assembly": "sce",
+      "static": true,
+      "returns": "void",
+      "risk": "write",
+      "params": []
+    },
+    {
+      "id": "datacore.list_entries",
+      "executor": "datacore",
+      "method": "list_entries",
+      "returns": "array",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "datacore.read",
+      "executor": "datacore",
+      "method": "read",
+      "returns": "object",
+      "risk": "read",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true,
+          "description": "数编 entry 完整 link，如 $$.map_config.dflt.root"
+        },
+        {
+          "name": "path",
+          "type": "object",
+          "required": false,
+          "description": "可选：字符串点路径或数组段，如 [\"Game\",\"opened_slots\"]"
+        }
+      ]
+    },
+    {
+      "id": "datacore.write",
+      "executor": "datacore",
+      "method": "write",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "link",
+          "type": "string",
+          "required": true,
+          "description": "数编 entry 完整 link"
+        },
+        {
+          "name": "path",
+          "type": "object",
+          "required": true,
+          "description": "字段路径（数组段或点路径）"
+        },
+        {
+          "name": "value",
+          "type": "object",
+          "required": true,
+          "description": "JSON 值，自动推导 IDataType（bool/int/decimal/string/array/object/null）"
+        },
+        {
+          "name": "auto_commit",
+          "type": "bool",
+          "required": false,
+          "default": true,
+          "description": "默认 true 写完即 CommitChanges；false 则暂存（重开地图丢弃）"
+        }
+      ]
+    },
+    {
+      "id": "datacore.batch_write",
+      "executor": "datacore",
+      "method": "batch_write",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "changes",
+          "type": "object",
+          "required": true,
+          "description": "[{link, path, value}...] 数组，全部 AddGameChange 后只 CommitChanges 一次"
+        },
+        {
+          "name": "auto_commit",
+          "type": "bool",
+          "required": false,
+          "default": true
+        },
+        {
+          "name": "on_error",
+          "type": "string",
+          "required": false,
+          "default": "abort",
+          "description": "abort（默认，遇错即断不提交）| commit_partial（提交已应用部分）"
+        }
+      ]
+    },
+    {
+      "id": "lua.list_commands",
+      "executor": "lua",
+      "method": "list_commands",
+      "returns": "array",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "lua.get_status",
+      "executor": "lua",
+      "method": "get_status",
+      "returns": "object",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "lua.set_suppress",
+      "executor": "lua",
+      "method": "set_suppress",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "enabled",
+          "type": "bool",
+          "required": true,
+          "description": "弹窗抑制开关"
+        }
+      ]
+    },
+    {
+      "id": "lua.run_lua",
+      "executor": "lua",
+      "method": "run_lua",
+      "returns": "object",
+      "risk": "danger",
+      "params": [
+        {
+          "name": "code",
+          "type": "string",
+          "required": true,
+          "description": "任意 Lua 代码（pcall 执行，兜底逃生舱；默认 danger 需配置放行）"
+        }
+      ]
+    },
+    {
+      "id": "sys.server_info",
+      "executor": "sys",
+      "method": "server_info",
+      "returns": "object",
+      "risk": "read",
+      "params": []
+    }
+  ]
+}

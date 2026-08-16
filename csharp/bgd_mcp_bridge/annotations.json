@@ -1,0 +1,149 @@
+{
+  "_comment": "人工标注层（0.5.0，仓库长期资产）：服务准入/中文描述/别名/标签/风险/黑名单。描述质量决定 AI 搜索命中率。catalog.json 重生成不会丢本文件。",
+
+  "services": {
+    "SCE.CppInterface.FileSystem": {
+      "admitted": true,
+      "description": "文件系统服务（已准入：read 级方法已在隔离地图逐个实调无崩溃）"
+    }
+  },
+
+  "blacklist": [
+    "svc.FileSystem.SystemCommand",
+    "svc.FileSystem.SystemRun",
+    "svc.FileSystem.SystemOpen",
+    "svc.FileSystem.SetUpdateIp"
+  ],
+
+  "entries": {
+    "datacore.list_entries": {
+      "description": "列出默认数编 entry（gameplay/map_config）及其顶层字段",
+      "aliases": ["list_entries", "数编列表"],
+      "tags": ["数编", "datacore"],
+      "risk": "read"
+    },
+    "datacore.read": {
+      "description": "读取数编 entry（可带字段路径），返回 JSON 树",
+      "aliases": ["read_entry", "读数编"],
+      "tags": ["数编", "datacore", "单位", "配置"],
+      "risk": "read",
+      "precondition": "地图已打开",
+      "example": "{\"id\":\"datacore.read\",\"args\":{\"link\":\"$$.map_config.dflt.root\",\"path\":[\"Game\",\"opened_slots\"]}}"
+    },
+    "datacore.write": {
+      "description": "写数编字段（默认写完即提交落盘）",
+      "aliases": ["write_entry", "写数编", "改数编"],
+      "tags": ["数编", "datacore", "修改"],
+      "risk": "write",
+      "precondition": "地图已打开",
+      "example": "{\"id\":\"datacore.write\",\"args\":{\"link\":\"$$.map_config.dflt.root\",\"path\":[\"Game\",\"xxx\"],\"value\":123}}"
+    },
+    "datacore.batch_write": {
+      "description": "批量写数编（全部暂存后只提交一次，避免逐字段触发引擎同步/界面刷新）",
+      "aliases": ["batch_write", "批量写数编", "批量改数编"],
+      "tags": ["数编", "datacore", "批量", "修改"],
+      "risk": "write",
+      "precondition": "地图已打开"
+    },
+    "lua.list_commands": {
+      "description": "列出编辑器全部已注册菜单命令名",
+      "aliases": ["list_commands"],
+      "tags": ["命令", "菜单"],
+      "risk": "read"
+    },
+    "lua.get_status": {
+      "description": "获取编辑器状态（地图路径/调试中/弹窗抑制）",
+      "aliases": ["get_status", "状态"],
+      "tags": ["状态"],
+      "risk": "read"
+    },
+    "lua.set_suppress": {
+      "description": "设置弹窗抑制开关（自动化长链路前开启防模态卡死）",
+      "aliases": ["set_suppress", "弹窗抑制"],
+      "tags": ["弹窗", "抑制"],
+      "risk": "write"
+    },
+    "lua.run_lua": {
+      "description": "兜底逃生舱：pcall 执行任意 Lua 代码（默认 danger 关闭，需 config.json danger_allow 放行）",
+      "aliases": ["run_lua", "eval_lua"],
+      "tags": ["lua", "逃生舱"],
+      "risk": "danger"
+    },
+    "sys.server_info": {
+      "description": "服务自身信息（版本/端口/目录规模/漂移状态）",
+      "aliases": ["server_info"],
+      "tags": ["状态"],
+      "risk": "read"
+    },
+
+    "svc.FileSystem.FileExists": {
+      "description": "判断文件是否存在",
+      "aliases": ["file_exists", "文件存在"],
+      "tags": ["文件"],
+      "risk": "read",
+      "example": "{\"id\":\"svc.FileSystem.FileExists\",\"args\":{\"fileName\":\"D:/sce_online/test.txt\"}}"
+    },
+    "svc.FileSystem.DirExists": {
+      "description": "判断目录是否存在",
+      "aliases": ["dir_exists", "目录存在"],
+      "tags": ["文件", "目录"],
+      "risk": "read"
+    },
+    "svc.FileSystem.ScanDir": {
+      "description": "扫描目录下文件列表（filter 如 *.*，flags 0=文件 1=目录 2=隐藏组合，recursive 递归）",
+      "aliases": ["scan_dir", "list_files", "列目录"],
+      "tags": ["文件", "目录"],
+      "risk": "read",
+      "example": "{\"id\":\"svc.FileSystem.ScanDir\",\"args\":{\"pathName\":\"D:/sce_online\",\"filter\":\"*.*\",\"flags\":0,\"recursive\":false}}"
+    },
+    "svc.FileSystem.Copy": {
+      "description": "复制文件",
+      "aliases": ["copy_file", "复制文件"],
+      "tags": ["文件"],
+      "risk": "write"
+    },
+    "svc.FileSystem.Delete": {
+      "description": "删除文件",
+      "aliases": ["delete_file", "unlink", "删除文件"],
+      "tags": ["文件"],
+      "risk": "danger"
+    },
+    "svc.FileSystem.DeleteDir": {
+      "description": "删除目录",
+      "aliases": ["delete_dir", "删除目录"],
+      "tags": ["文件", "目录"],
+      "risk": "danger"
+    },
+    "svc.FileSystem.GetResourceDir": {
+      "description": "获取引擎资源根目录",
+      "aliases": ["resource_dir", "资源目录"],
+      "tags": ["路径"],
+      "risk": "read"
+    },
+    "svc.FileSystem.GetTemporaryDir": {
+      "description": "获取临时目录",
+      "aliases": ["temp_dir", "临时目录"],
+      "tags": ["路径"],
+      "risk": "read"
+    },
+    "svc.FileSystem.GetLastModifiedTime": {
+      "description": "获取文件最后修改时间",
+      "aliases": ["last_modified", "修改时间"],
+      "tags": ["文件"],
+      "risk": "read"
+    },
+
+    "cpp.ApplicationExport.GetMapPath": {
+      "description": "获取当前地图路径",
+      "aliases": ["map_path", "地图路径"],
+      "tags": ["状态", "地图"],
+      "risk": "read"
+    },
+    "cpp.Time.GetTimeStamp(string)": {
+      "description": "按格式取当前时间戳字符串",
+      "aliases": ["timestamp", "时间戳"],
+      "tags": ["时间"],
+      "risk": "read"
+    }
+  }
+}

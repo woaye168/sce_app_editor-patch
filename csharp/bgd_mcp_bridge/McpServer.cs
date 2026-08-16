@@ -1,32 +1,79 @@
 using System.Net;
 using System.Reflection;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace BgdMcpBridge;
 
 /// <summary>
-/// 进程内 HTTP + MCP 服务。
-/// HttpListener 绑定 127.0.0.1，端口 39177 起被占则 +1 重试至 39187；全部失败记日志不抛。
-/// 启动成功把端口号写入 <![CDATA[<引擎运行根>/logs/bgd_csharp/port]]>（纯数字）。
+/// 进程内 HTTP + MCP 服务（0.5.0 Gateway 架构）。
+/// HttpListener 绑定 127.0.0.1 固定端口（默认 39177，config.json mcp_port 可覆盖），
+/// 启动成功把端口号写入 &lt;引擎运行根&gt;/logs/bgd_csharp/port（纯数字）。
 /// 端点：POST /rpc（JSON-RPC 风格）、GET /events?since=、POST /mcp（MCP Streamable HTTP）。
+///
+/// 0.5.0 起放弃「每个能力 = 一个 MCP tool」模型：tools/list 恒定只暴露 ~10 个固定元工具，
+/// 全部能力进入可搜索的能力目录（<see cref="CapabilityCatalog"/>），
+/// AI 经 search_capabilities → invoke_capability 两步完成调用。
+/// 0.4.x 的 list_tool_categories / list_category_tools / cmd_uXXXX slug 机制已废弃删除（无兼容层）。
 /// 所有请求处理整体 try-catch，异常返回 JSON error 并记日志。
 /// </summary>
 public sealed class McpServer
 {
     /// <summary>固定监听端口。刻意<b>不</b>做端口自动跳变——MCP 客户端（AI 工具/编辑器）通常按 URL 静态
-    /// 配置服务地址，端口一变所有已配置客户端全部失效。固定端口才能保证「配置一次永久可用」。
-    /// 默认 39177，可被配置文件覆盖（见 <see cref="ResolvePort"/>）。</summary>
+    /// 配置服务地址，端口一变所有已配置客户端全部失效。固定端口才能保证「配置一次永久可用」。</summary>
     public const int PortFixed = 39177;
 
-    /// <summary>实际生效端口（启动时由 ResolvePort 确定）。</summary>
-    private static int EffectivePort = PortFixed;
+    /// <summary>MCP 协议版本。</summary>
+    public const string ProtocolVersion = "2025-03-26";
 
-    /// <summary>
-    /// 解析监听端口：优先读配置文件 <引擎运行根>/logs/bgd_csharp/config.json 的 mcp_port 字段
-    /// （编辑器补丁应用「设置」页可改），非法/缺失则用默认 <see cref="PortFixed"/>。
-    /// </summary>
+    /// <summary>MCP serverInfo.name。</summary>
+    public const string ServerName = "bgd_mcp_bridge";
+
+    /// <summary>start_debug 命令超时（启动慢，放宽到 120 秒）。</summary>
+    public const int StartDebugTimeoutMs = 120000;
+
+    private readonly EditorBridge _bridge;
+    private readonly EventBuffer _events;
+    private readonly CapabilityCatalog _catalog;
+    private readonly Gateway _gateway;
+    private HttpListener? _listener;
+    private CancellationTokenSource? _cts;
+    private long _requestCount;
+
+    /// <summary>实际绑定端口（0 表示未启动）。</summary>
+    public int Port { get; private set; }
+
+    /// <summary>累计处理请求数（供状态页显示）。</summary>
+    public long RequestCount => Interlocked.Read(ref _requestCount);
+
+    /// <summary>服务版本（程序集 InformationalVersion，无则 dev）。</summary>
+    public static string Version { get; } =
+        typeof(McpServer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
+
+    public McpServer(EditorBridge bridge, EventBuffer events)
+    {
+        _bridge = bridge;
+        _events = events;
+        _catalog = CapabilityCatalog.Load();
+        _catalog.PushEvent = (type, data) => _events.Push("bridge", type, data);
+        _gateway = new Gateway(_catalog, bridge, events);
+    }
+
+    /// <summary>端口文件路径：&lt;引擎运行根&gt;/logs/bgd_csharp/port。无法推导引擎根时返回 null。</summary>
+    public static string? GetPortFilePath()
+    {
+        try
+        {
+            var root = Logger.TryGetEngineRoot();
+            return root == null ? null : Path.Combine(root, "logs", "bgd_csharp", "port");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>解析监听端口：优先读配置文件 &lt;引擎运行根&gt;/logs/bgd_csharp/config.json 的 mcp_port 字段。</summary>
     private static int ResolvePort()
     {
         try
@@ -54,75 +101,31 @@ public sealed class McpServer
         return PortFixed;
     }
 
-    /// <summary>MCP 协议版本。</summary>
-    public const string ProtocolVersion = "2025-03-26";
-
-    /// <summary>MCP serverInfo.name。</summary>
-    public const string ServerName = "bgd_mcp_bridge";
-
-    /// <summary>start_debug 命令超时（启动慢，放宽到 120 秒）。</summary>
-    public const int StartDebugTimeoutMs = 120000;
-
-    private readonly EditorBridge _bridge;
-    private readonly EventBuffer _events;
-    private HttpListener? _listener;
-    private CancellationTokenSource? _cts;
-    private long _requestCount;
-
-    /// <summary>实际绑定端口（0 表示未启动）。</summary>
-    public int Port { get; private set; }
-
-    /// <summary>累计处理请求数（供状态页显示）。</summary>
-    public long RequestCount => Interlocked.Read(ref _requestCount);
-
-    /// <summary>服务版本（程序集 InformationalVersion，无则 dev）。</summary>
-    public static string Version { get; } =
-        typeof(McpServer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
-
-    public McpServer(EditorBridge bridge, EventBuffer events)
-    {
-        _bridge = bridge;
-        _events = events;
-    }
-
-    /// <summary>端口文件路径：<引擎运行根>/logs/bgd_csharp/port。无法推导引擎根时返回 null。</summary>
-    public static string? GetPortFilePath()
-    {
-        try
-        {
-            var root = Logger.TryGetEngineRoot();
-            return root == null ? null : Path.Combine(root, "logs", "bgd_csharp", "port");
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    /// <summary>启动监听（固定端口 <see cref="PortFixed"/>）。成功返回 true；端口被占则记日志返回 false（不抛异常）。</summary>
+    /// <summary>启动监听（固定端口）。成功返回 true；端口被占则记日志返回 false（不抛异常）。</summary>
     public bool Start()
     {
         try
         {
-            EffectivePort = ResolvePort();
+            int port = ResolvePort();
             try
             {
                 var listener = new HttpListener();
-                listener.Prefixes.Add($"http://127.0.0.1:{EffectivePort}/");
+                listener.Prefixes.Add($"http://127.0.0.1:{port}/");
                 listener.Start();
                 _listener = listener;
-                Port = EffectivePort;
+                Port = port;
             }
             catch (Exception ex)
             {
                 // 端口被占：不跳端口（保证已配置客户端可用），明确报错提示用户排查占用进程
-                Logger.Error($"端口 {EffectivePort} 被占用，HTTP 服务未启动。请关闭占用该端口的进程后重启编辑器。详情: {ex.Message}");
+                Logger.Error($"端口 {port} 被占用，HTTP 服务未启动。请关闭占用该端口的进程后重启编辑器。详情: {ex.Message}");
                 return false;
             }
 
             WritePortFile();
             _cts = new CancellationTokenSource();
             _ = Task.Run(AcceptLoopAsync);
+            _ = Task.Run(RefreshCommandCapabilitiesAsync);
             Logger.Info($"HTTP 服务已启动: http://127.0.0.1:{Port}/");
             return true;
         }
@@ -142,16 +145,50 @@ public sealed class McpServer
     }
 
     /// <summary>
-    /// 进程退出（编辑器关闭）时的清理：只删端口文件，<b>不</b>调用 listener.Stop()。
-    /// 原因：ExitApplication 事件在引擎事件线程触发，此时 Stop 会 dispose 底层
-    /// HttpRequestQueueV2Handle，正阻塞在 GetContextAsync 的 IO 线程随即抛出
-    /// HttpListenerException(995)/ObjectDisposedException 并逃逸为未处理异常（弹原生框）。
-    /// 进程即将退出，监听器交给 OS 收尸即可，无需显式停止。
+    /// 进程退出（编辑器关闭）时的清理：只删端口文件，<b>不</b>调用 listener.Stop()（防停机竞态弹框）。
     /// </summary>
     public void OnProcessExit()
     {
         try { _cts?.Cancel(); } catch { }
         DeletePortFile();
+    }
+
+    /// <summary>
+    /// 从 Lua 侧拉取菜单命令表注入 cmd.* 动态能力条目（能力 ID 即原文，cmd.&lt;命令名&gt;）。
+    /// 失败重试几次后放弃（不阻塞服务启动）。
+    /// </summary>
+    private async Task RefreshCommandCapabilitiesAsync()
+    {
+        for (int attempt = 1; attempt <= 5; attempt++)
+        {
+            try
+            {
+                var data = await _bridge.SendCommandAsync("list_commands", null, 10000).ConfigureAwait(false);
+                if (data.HasValue && data.Value.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    var names = new List<string>();
+                    foreach (var item in data.Value.EnumerateArray())
+                    {
+                        if (item.ValueKind == System.Text.Json.JsonValueKind.String && item.GetString() is { } s)
+                        {
+                            names.Add(s);
+                        }
+                    }
+                    if (names.Count > 0)
+                    {
+                        _catalog.RefreshCommands(names);
+                        Logger.Info($"cmd.* 能力条目已注入: {names.Count} 个菜单命令");
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn($"拉取菜单命令失败（第 {attempt} 次）: {ex.Message}");
+            }
+            await Task.Delay(3000).ConfigureAwait(false);
+        }
+        Logger.Warn("菜单命令拉取失败，cmd.* 能力为空（Lua 侧命令桥未就绪？）");
     }
 
     private void WritePortFile()
@@ -219,10 +256,7 @@ public sealed class McpServer
             Logger.Error($"请求处理异常: {ctx.Request.HttpMethod} {ctx.Request.Url?.AbsolutePath}", ex);
             try
             {
-                await WriteJsonAsync(ctx, 500, new JsonObject
-                {
-                    ["error"] = ex.Message
-                }.ToJsonString()).ConfigureAwait(false);
+                await WriteJsonAsync(ctx, 500, JsonOut.Stringify(new JsonObject { ["error"] = ex.Message })).ConfigureAwait(false);
             }
             catch
             {
@@ -253,11 +287,11 @@ public sealed class McpServer
                 await HandleMcpAsync(ctx).ConfigureAwait(false);
                 break;
             case ("GET", "/mcp"):
-                // 首版不支持 SSE，直接 405
-                await WriteJsonAsync(ctx, 405, new JsonObject { ["error"] = "SSE not supported" }.ToJsonString()).ConfigureAwait(false);
+                // 不支持 SSE，直接 405
+                await WriteJsonAsync(ctx, 405, JsonOut.Stringify(new JsonObject { ["error"] = "SSE not supported" })).ConfigureAwait(false);
                 break;
             default:
-                await WriteJsonAsync(ctx, 404, new JsonObject { ["error"] = "not found" }.ToJsonString()).ConfigureAwait(false);
+                await WriteJsonAsync(ctx, 404, JsonOut.Stringify(new JsonObject { ["error"] = "not found" })).ConfigureAwait(false);
                 break;
         }
     }
@@ -272,15 +306,15 @@ public sealed class McpServer
         var method = root?["method"]?.GetValue<string>();
         if (root == null || method == null)
         {
-            await WriteJsonAsync(ctx, 400, new JsonObject { ["id"] = null, ["error"] = "bad request" }.ToJsonString()).ConfigureAwait(false);
+            await WriteJsonAsync(ctx, 400, JsonOut.Stringify(new JsonObject { ["id"] = null, ["error"] = "bad request" })).ConfigureAwait(false);
             return;
         }
         var p = root["params"] as JsonObject;
-        var (ok, result, error) = await DispatchAsync(method, p).ConfigureAwait(false);
-        JsonObject resp = ok
-            ? new JsonObject { ["id"] = id?.DeepClone(), ["result"] = result }
-            : new JsonObject { ["id"] = id?.DeepClone(), ["error"] = error };
-        await WriteJsonAsync(ctx, 200, resp.ToJsonString()).ConfigureAwait(false);
+        var r = await DispatchAsync(method, p).ConfigureAwait(false);
+        JsonObject resp = r.Ok
+            ? new JsonObject { ["id"] = id?.DeepClone(), ["result"] = r.Result }
+            : new JsonObject { ["id"] = id?.DeepClone(), ["error"] = r.Error };
+        await WriteJsonAsync(ctx, 200, JsonOut.Stringify(resp)).ConfigureAwait(false);
     }
 
     // ---------------- GET /events?since= ----------------
@@ -305,7 +339,7 @@ public sealed class McpServer
             });
         }
         var resp = new JsonObject { ["events"] = arr, ["latest"] = latest };
-        await WriteJsonAsync(ctx, 200, resp.ToJsonString()).ConfigureAwait(false);
+        await WriteJsonAsync(ctx, 200, JsonOut.Stringify(resp)).ConfigureAwait(false);
     }
 
     // ---------------- POST /mcp（MCP Streamable HTTP） ----------------
@@ -337,7 +371,6 @@ public sealed class McpServer
             }
             case "notifications/initialized":
             {
-                // 通知无响应体
                 ctx.Response.StatusCode = 202;
                 break;
             }
@@ -356,32 +389,20 @@ public sealed class McpServer
                 var p = root["params"] as JsonObject;
                 var name = p?["name"]?.GetValue<string>();
                 var args = p?["arguments"] as JsonObject;
-                if (name == null)
+                if (name == null || !IsMetaTool(name))
                 {
-                    await WriteJsonAsync(ctx, 200, McpError(id, -32602, "missing tool name")).ConfigureAwait(false);
+                    await WriteJsonAsync(ctx, 200, McpError(id, -32602, name == null ? "missing tool name" : $"unknown tool: {name}（tools/list 恒定只暴露固定元工具，能力调用请走 invoke_capability）")).ConfigureAwait(false);
                     break;
                 }
-                // 动态命令 tool（slug）→ 反查原始命令名，走 call_command 通道
-                string? dynamicCmd = null;
-                if (!IsBuiltinTool(name))
-                {
-                    dynamicCmd = ResolveCommandTool(name);
-                    if (dynamicCmd == null)
-                    {
-                        await WriteJsonAsync(ctx, 200, McpError(id, -32602, $"unknown tool: {name}")).ConfigureAwait(false);
-                        break;
-                    }
-                }
-                var (ok, result, error) = dynamicCmd != null
-                    ? await DispatchAsync("call_command", new JsonObject { ["name"] = dynamicCmd }).ConfigureAwait(false)
-                    : await DispatchAsync(name, args).ConfigureAwait(false);
-                JsonObject toolResult = ok
+                var r = await DispatchAsync(name, args).ConfigureAwait(false);
+                // 出口统一 pretty JSON：中文不转义、无 JSON 套 JSON 双重转义
+                JsonObject toolResult = r.Ok
                     ? new JsonObject
                     {
                         ["content"] = new JsonArray(new JsonObject
                         {
                             ["type"] = "text",
-                            ["text"] = result?.ToJsonString() ?? "{}"
+                            ["text"] = JsonOut.StringifyPretty(r.Result)
                         })
                     }
                     : new JsonObject
@@ -389,7 +410,7 @@ public sealed class McpServer
                         ["content"] = new JsonArray(new JsonObject
                         {
                             ["type"] = "text",
-                            ["text"] = error ?? "unknown error"
+                            ["text"] = JsonOut.StringifyPretty(new JsonObject { ["ok"] = false, ["error"] = r.Error })
                         }),
                         ["isError"] = true
                     };
@@ -413,43 +434,40 @@ public sealed class McpServer
 
     private static string McpResult(JsonNode? id, JsonObject result)
     {
-        return new JsonObject
+        return JsonOut.Stringify(new JsonObject
         {
             ["jsonrpc"] = "2.0",
             ["id"] = id?.DeepClone(),
             ["result"] = result
-        }.ToJsonString();
+        });
     }
 
     private static string McpError(JsonNode? id, int code, string message)
     {
-        return new JsonObject
+        return JsonOut.Stringify(new JsonObject
         {
             ["jsonrpc"] = "2.0",
             ["id"] = id?.DeepClone(),
             ["error"] = new JsonObject { ["code"] = code, ["message"] = message }
-        }.ToJsonString();
+        });
     }
 
-    // 动态命令 tools：slug → 原始命令名 的映射缓存（list_commands 拉取一次后缓存）
-    private readonly Dictionary<string, string> _commandToolMap = new();
-    private bool _commandToolsLoaded;
-
-    private JsonObject BuildToolsList()
+    /// <summary>
+    /// 固定元工具集（tools/list 全部内容，永不超过 10 个）。
+    /// 能力发现/调用走 search → describe（可选）→ invoke；高频调试操作保留直暴露快捷路径。
+    /// </summary>
+    private static JsonObject BuildToolsList()
     {
-        // 固定工具 + 分类元工具（list_tool_categories / list_category_tools）。
-        // 刻意不把 80+ 菜单命令直接平铺进 tools/list——避免淹没 AI 上下文。
-        // AI 先调 list_tool_categories 拿分类，再按分类调 list_category_tools 取该分类的命令 tools。
         var tools = JsonNode.Parse("""
         [
-          {"name":"call_command","description":"调用编辑器 Lua 侧注册的命令（params.name=命令名）","inputSchema":{"type":"object","properties":{"name":{"type":"string","description":"命令名"}},"required":["name"]}},
-          {"name":"list_commands","description":"列出 Lua 侧全部可用命令名（平铺，量大；建议改用 list_tool_categories 按分类取）","inputSchema":{"type":"object","properties":{}}},
-          {"name":"list_tool_categories","description":"列出编辑器命令的分类（如 文件/调试/工具/发布），供按分类懒加载","inputSchema":{"type":"object","properties":{}}},
-          {"name":"list_category_tools","description":"列出某分类下的命令 tools（params.category=分类名，返回该分类可调用的命令及 tool 名）","inputSchema":{"type":"object","properties":{"category":{"type":"string","description":"分类名（list_tool_categories 返回的）"}},"required":["category"]}},
-          {"name":"get_status","description":"获取编辑器状态","inputSchema":{"type":"object","properties":{}}},
-          {"name":"start_debug","description":"启动调试（调试/调试）","inputSchema":{"type":"object","properties":{}}},
-          {"name":"restart_last_debug","description":"再次调试上次调试版本（调试/再次调试上次调试版本）","inputSchema":{"type":"object","properties":{}}},
-          {"name":"stop_debug","description":"停止调试（调试/停止）","inputSchema":{"type":"object","properties":{}}},
+          {"name":"search_capabilities","description":"搜索编辑器能力（id/描述/别名/标签模糊匹配）。返回简化签名+风险级别，多数场景 search→invoke 两步完成调用","inputSchema":{"type":"object","properties":{"query":{"type":"string","description":"关键词，可多个（空格分隔）"},"limit":{"type":"integer","description":"返回条数，默认 5，上限 10"}},"required":["query"]}},
+          {"name":"describe_capability","description":"查看能力完整定义（参数 JSON Schema/返回/风险/示例/前置条件），疑难时深查","inputSchema":{"type":"object","properties":{"id":{"type":"string","description":"能力 id（search 返回的）"}},"required":["id"]}},
+          {"name":"invoke_capability","description":"统一调用入口。参数校验失败时错误内嵌 compact schema，按提示修正后重试即可","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"args":{"type":"object","description":"调用参数"},"timeout_ms":{"type":"integer","description":"超时毫秒，默认 5000"}},"required":["id"]}},
+          {"name":"list_namespaces","description":"列出能力命名空间（svc/cpp/datacore/cmd/lua/sys）及各空间能力数","inputSchema":{"type":"object","properties":{}}},
+          {"name":"get_status","description":"获取编辑器状态（地图/调试中/弹窗抑制）","inputSchema":{"type":"object","properties":{}}},
+          {"name":"start_debug","description":"启动调试（需已打开地图）","inputSchema":{"type":"object","properties":{}}},
+          {"name":"restart_last_debug","description":"再次调试上次调试版本","inputSchema":{"type":"object","properties":{}}},
+          {"name":"stop_debug","description":"停止调试","inputSchema":{"type":"object","properties":{}}},
           {"name":"set_suppress","description":"设置弹窗抑制开关","inputSchema":{"type":"object","properties":{"enabled":{"type":"boolean"}},"required":["enabled"]}},
           {"name":"get_events","description":"拉取事件缓冲中 seq > since 的事件","inputSchema":{"type":"object","properties":{"since":{"type":"integer"}}}}
         ]
@@ -457,132 +475,28 @@ public sealed class McpServer
         return new JsonObject { ["tools"] = tools };
     }
 
-    /// <summary>按「命令名第一个 / 前缀」把命令分类（如 调试/调试 → 分类「调试」）。无 / 的归入「其他」。</summary>
-    private static string CategoryOf(string cmdName)
-    {
-        var idx = cmdName.IndexOf('/');
-        return idx > 0 ? cmdName[..idx] : "其他";
-    }
-
-    /// <summary>分类 → 该分类下的 (slug, 原始命令名) 列表。</summary>
-    private Dictionary<string, List<(string Slug, string Cmd)>> GetCommandsByCategory()
-    {
-        var map = new Dictionary<string, List<(string, string)>>();
-        foreach (var (slug, cmd) in GetCommandToolMap())
-        {
-            var cat = CategoryOf(cmd);
-            if (!map.TryGetValue(cat, out var list))
-            {
-                list = new List<(string, string)>();
-                map[cat] = list;
-            }
-            list.Add((slug, cmd));
-        }
-        return map;
-    }
-
-    /// <summary>拉取（并缓存）Lua 命令 → MCP 安全 tool 名的映射。失败返回已缓存或空。</summary>
-    private IReadOnlyDictionary<string, string> GetCommandToolMap()
-    {
-        if (_commandToolsLoaded) return _commandToolMap;
-        _commandToolsLoaded = true;
-        try
-        {
-            var data = _bridge.SendCommandAsync("list_commands", null, 10000)
-                .ConfigureAwait(false).GetAwaiter().GetResult();
-            if (data.HasValue && data.Value.ValueKind == JsonValueKind.Array)
-            {
-                var seen = new HashSet<string>();
-                foreach (var item in data.Value.EnumerateArray())
-                {
-                    var cmd = item.ValueKind == JsonValueKind.String ? item.GetString() : null;
-                    if (string.IsNullOrEmpty(cmd)) continue;
-                    var slug = ToToolSlug(cmd, seen);
-                    if (slug != null) _commandToolMap[slug] = cmd;
-                }
-                Logger.Info($"动态命令 tools 已加载: {_commandToolMap.Count} 个");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Warn($"加载动态命令 tools 失败: {ex.Message}");
-        }
-        return _commandToolMap;
-    }
-
-    /// <summary>把中文/含斜杠命令名转成 MCP 合法 tool 名（[a-zA-Z0-9_-]，≤64）。</summary>
-    private static string? ToToolSlug(string cmd, HashSet<string> seen)
-    {
-        var sb = new System.Text.StringBuilder("cmd_");
-        foreach (var ch in cmd)
-        {
-            if (char.IsAsciiLetterOrDigit(ch)) sb.Append(ch);
-            else if (ch == '/' || ch == '(' || ch == ')' || ch == ' ' || ch == '-') sb.Append('_');
-            else sb.Append('u').Append(((int)ch).ToString("x4")); // 中文等非 ASCII → uXXXX
-        }
-        var slug = sb.ToString();
-        if (slug.Length > 64) slug = slug[..64];
-        if (!seen.Add(slug)) return null; // 冲突则跳过（极端情况）
-        return slug;
-    }
-
-    /// <summary>是否内置固定 tool。</summary>
-    private static bool IsBuiltinTool(string name) => name is
-        "call_command" or "list_commands" or "list_tool_categories" or "list_category_tools"
+    /// <summary>是否固定元工具。</summary>
+    private static bool IsMetaTool(string name) => name is
+        "search_capabilities" or "describe_capability" or "invoke_capability" or "list_namespaces"
         or "get_status" or "start_debug" or "restart_last_debug" or "stop_debug"
         or "set_suppress" or "get_events";
 
-    /// <summary>若 tool 名是动态命令 slug，返回原始命令名；否则 null。</summary>
-    private string? ResolveCommandTool(string toolName)
-    {
-        return GetCommandToolMap().TryGetValue(toolName, out var cmd) ? cmd : null;
-    }
-
     // ---------------- 核心分发（/rpc 与 tools/call 共用） ----------------
 
-    private async Task<(bool Ok, JsonNode? Result, string? Error)> DispatchAsync(string method, JsonObject? p)
+    private async Task<OpResult> DispatchAsync(string method, JsonObject? p)
     {
         try
         {
             switch (method)
             {
-                case "call_command":
-                {
-                    var name = p?["name"]?.GetValue<string>();
-                    if (string.IsNullOrEmpty(name)) return (false, null, "missing params.name");
-                    // 直发官方菜单事件（官方菜单点击同款路径，fire-and-forget）
-                    _bridge.SendMenuCommand(name);
-                    return (true, new JsonObject { ["sent"] = name }, null);
-                }
-                case "list_commands":
-                    return await ViaLuaAsync("list_commands", null).ConfigureAwait(false);
-                case "list_tool_categories":
-                {
-                    // 返回命令分类及各类数量，供 AI 按分类懒加载（减上下文）
-                    var byCat = GetCommandsByCategory();
-                    var cats = new JsonArray();
-                    foreach (var (cat, list) in byCat.OrderBy(kv => kv.Key))
-                    {
-                        cats.Add(new JsonObject { ["category"] = cat, ["count"] = list.Count });
-                    }
-                    return (true, new JsonObject { ["categories"] = cats }, null);
-                }
-                case "list_category_tools":
-                {
-                    var cat = p?["category"]?.GetValue<string>();
-                    if (string.IsNullOrEmpty(cat)) return (false, null, "missing params.category");
-                    var byCat = GetCommandsByCategory();
-                    if (!byCat.TryGetValue(cat, out var list))
-                    {
-                        return (true, new JsonObject { ["tools"] = new JsonArray(), ["category"] = cat }, null);
-                    }
-                    var arr = new JsonArray();
-                    foreach (var (slug, cmd) in list)
-                    {
-                        arr.Add(new JsonObject { ["tool"] = slug, ["command"] = cmd });
-                    }
-                    return (true, new JsonObject { ["category"] = cat, ["tools"] = arr }, null);
-                }
+                case "search_capabilities":
+                    return _gateway.Search(p);
+                case "describe_capability":
+                    return _gateway.Describe(p);
+                case "invoke_capability":
+                    return await _gateway.InvokeAsync(p).ConfigureAwait(false);
+                case "list_namespaces":
+                    return _gateway.ListNamespaces();
                 case "get_status":
                     return await ViaLuaAsync("get_status", null).ConfigureAwait(false);
                 case "set_suppress":
@@ -593,14 +507,10 @@ public sealed class McpServer
                 case "start_debug":
                 {
                     // 防护：地图未就绪时不触发（官方部分调试模块在无图时会崩，如 MutiDebugWindow 依赖 AddMapScoped<IDataCore>）
-                    var (sok, sres, _) = await ViaLuaAsync("get_status", null, 5000).ConfigureAwait(false);
-                    if (sok && sres != null)
+                    var (sok, sres) = await ViaLuaGetStatusAsync().ConfigureAwait(false);
+                    if (sok && string.IsNullOrEmpty(sres?["map_path"]?.GetValue<string>()))
                     {
-                        var mapPath = sres["map_path"]?.GetValue<string>();
-                        if (string.IsNullOrEmpty(mapPath))
-                        {
-                            return (false, null, "地图未打开：请先在编辑器中打开项目/地图，再启动调试");
-                        }
+                        return OpResult.Fail("MAP_NOT_OPEN", "地图未打开：请先在编辑器中打开项目/地图，再启动调试");
                     }
                     // 先经 Lua 桥开弹窗抑制（静默失败不阻断），再直发菜单命令启动调试，最后轮询 get_status 确认 PIE 起来
                     try { await ViaLuaAsync("set_suppress", new { enabled = true }).ConfigureAwait(false); } catch { }
@@ -614,15 +524,10 @@ public sealed class McpServer
                 }
                 case "restart_last_debug":
                 {
-                    // 再次调试上次调试版本：复用上次的调试目录，跳过生成，启动更快
-                    var (sok, sres, _) = await ViaLuaAsync("get_status", null, 5000).ConfigureAwait(false);
-                    if (sok && sres != null)
+                    var (sok, sres) = await ViaLuaGetStatusAsync().ConfigureAwait(false);
+                    if (sok && string.IsNullOrEmpty(sres?["map_path"]?.GetValue<string>()))
                     {
-                        var mapPath = sres["map_path"]?.GetValue<string>();
-                        if (string.IsNullOrEmpty(mapPath))
-                        {
-                            return (false, null, "地图未打开：请先在编辑器中打开项目/地图");
-                        }
+                        return OpResult.Fail("MAP_NOT_OPEN", "地图未打开：请先在编辑器中打开项目/地图");
                     }
                     try { await ViaLuaAsync("set_suppress", new { enabled = true }).ConfigureAwait(false); } catch { }
                     _bridge.SendMenuCommand("调试/再次调试上次调试版本");
@@ -630,13 +535,16 @@ public sealed class McpServer
                 }
                 case "server_info":
                 {
-                    return (true, new JsonObject
+                    return OpResult.Success(new JsonObject
                     {
                         ["version"] = Version,
                         ["port"] = Port,
+                        ["engine_version"] = _catalog.EngineVersion,
+                        ["catalog_count"] = _catalog.Entries.Count,
+                        ["catalog_drifted"] = _catalog.Drifted,
                         ["pid"] = Environment.ProcessId,
                         ["engine_root"] = Logger.TryGetEngineRoot()
-                    }, null);
+                    });
                 }
                 case "get_events":
                 {
@@ -655,43 +563,47 @@ public sealed class McpServer
                             ["data"] = e.Data
                         });
                     }
-                    return (true, new JsonObject { ["events"] = arr, ["latest"] = latest }, null);
+                    return OpResult.Success(new JsonObject { ["events"] = arr, ["latest"] = latest });
                 }
                 default:
-                    return (false, null, $"unknown method: {method}");
+                    return OpResult.Fail("UNKNOWN_METHOD", $"unknown method: {method}",
+                        "0.5.0 起能力调用统一走 search_capabilities → invoke_capability；旧 method 已移除");
             }
         }
         catch (Exception ex)
         {
             Logger.Error($"命令分发异常: {method}", ex);
-            return (false, null, ex.Message);
+            return OpResult.Fail("INTERNAL", ex.Message, exceptionType: ex.GetType().FullName);
         }
     }
 
-    /// <summary>经 Lua 桥调用并转换结果。</summary>
-    private async Task<(bool Ok, JsonNode? Result, string? Error)> ViaLuaAsync(string method, object? paramsObj, int timeoutMs = 30000)
+    /// <summary>经 Lua 桥调用并转换结果（ack 的 data 字符串在 C# 侧解析成对象后并入响应，不透出原始转义串）。</summary>
+    private async Task<OpResult> ViaLuaAsync(string method, object? paramsObj, int timeoutMs = 30000)
     {
         var r = await _bridge.SendCommandDetailedAsync(method, paramsObj, timeoutMs).ConfigureAwait(false);
-        if (!r.Ok) return (false, null, r.Error ?? "lua error");
+        if (!r.Ok) return OpResult.Fail("LUA_ERROR", r.Error ?? "lua error");
         JsonNode? node = null;
         if (r.Data.HasValue)
         {
             try { node = JsonNode.Parse(r.Data.Value.GetRawText()); } catch { }
         }
-        return (true, node ?? new JsonObject(), null);
+        return OpResult.Success(node ?? new JsonObject());
     }
 
-    /// <summary>
-    /// 轮询 get_status 直到 debugging 满足期望值或超时。
-    /// expect 接收当前 debugging 布尔值，返回 true 表示达成。返回最终的 get_status 数据。
-    /// </summary>
-    private async Task<(bool Ok, JsonNode? Result, string? Error)> WaitStatusAsync(Func<bool, bool> expect, int timeoutMs, string timeoutError)
+    private async Task<(bool Ok, JsonNode? Data)> ViaLuaGetStatusAsync()
+    {
+        var r = await ViaLuaAsync("get_status", null, 5000).ConfigureAwait(false);
+        return (r.Ok, r.Result);
+    }
+
+    /// <summary>轮询 get_status 直到 debugging 满足期望值或超时。返回最终的 get_status 数据。</summary>
+    private async Task<OpResult> WaitStatusAsync(Func<bool, bool> expect, int timeoutMs, string timeoutError)
     {
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         JsonNode? last = null;
         while (DateTime.UtcNow < deadline)
         {
-            var (ok, result, _) = await ViaLuaAsync("get_status", null, 5000).ConfigureAwait(false);
+            var (ok, result) = await ViaLuaGetStatusAsync().ConfigureAwait(false);
             if (ok && result != null)
             {
                 last = result;
@@ -699,13 +611,13 @@ public sealed class McpServer
                 try { debugging = result["debugging"]?.GetValue<bool>() ?? false; } catch { }
                 if (expect(debugging))
                 {
-                    return (true, result, null);
+                    return OpResult.Success(result);
                 }
             }
             await Task.Delay(800).ConfigureAwait(false);
         }
         Logger.Warn($"WaitStatus 超时: {timeoutError}");
-        return (false, last, timeoutError);
+        return OpResult.Fail("TIMEOUT", timeoutError);
     }
 
     // ---------------- 基础 IO ----------------

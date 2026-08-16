@@ -102,9 +102,11 @@ public interface IDataCore {
 
 **结论（已并入 0.5.0 v3）**：svc 目录实行**服务级准入制**——默认整体不开放，annotations.json 逐服务人工准入。准入动作 = 在隔离地图里对该服务每个 read 级方法逐个实调确认无崩溃。对 svc 的安全模型是「未知即不开放」，比一般条目的「未知即 write」更严。
 
-### 6.2 IDataCore.CommitChanges 可撤销性：待实证（M4 开工第一步）
+### 6.2 IDataCore.CommitChanges 可撤销性：待实证（真机验收项）
 
-方案默认 `datacore.write` auto_commit=true 的前提是「commit 可挽回」。但 CommitChanges 是否进入编辑器 undo 栈（Ctrl+Z 可撤销）**本研究未覆盖**。若不可撤销，AI 误写无法用编辑器常规手段回滚，写类能力应按 danger 对待、单写默认不自动提交（重开地图丢弃暂存即回滚）。实证方法：隔离地图 AddGameChange + CommitChanges 后检查编辑器 undo 可用性与数据落盘时机。结论得出后回填 0.5.0.txt datacore 节。
+方案默认 `datacore.write` auto_commit=true 的前提是「commit 可挽回」。但 CommitChanges 是否进入编辑器 undo 栈（Ctrl+Z 可撤销）**本研究未覆盖**。若不可撤销，AI 误写无法用编辑器常规手段回滚，写类能力应按 danger 对待、单写默认不自动提交（重开地图丢弃暂存即回滚）。实证方法：隔离地图 AddGameChange + CommitChanges 后检查编辑器 undo 可用性与数据落盘时机。
+
+> 实现注记（2026-08-16）：0.5.0 代码已按 v3 草案落地（`Executors.cs` WriteAsync/BatchWriteAsync，auto_commit 默认 true）。**实证仍需真机执行**（本仓库开发机无法自动化驱动编辑器 GUI），结论得出前维持草案默认；若结论为「不可撤销」，改动点：Executors.cs 两处 auto_commit 默认值 → false，annotations.json datacore 写类 risk → danger。
 
 ### 6.3 版本漂移的检测只是半个闭环
 

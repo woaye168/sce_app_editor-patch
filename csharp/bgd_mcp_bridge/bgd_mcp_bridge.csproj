@@ -16,6 +16,12 @@
     <SceHostDirFull>$([System.IO.Path]::GetFullPath('$(SceHostDir)'))</SceHostDirFull>
   </PropertyGroup>
 
+  <!-- 0.5.0 能力目录与人工标注层：编译期嵌入 dll，随补丁部署（无需改 Rust 部署链） -->
+  <ItemGroup>
+    <EmbeddedResource Include="catalog.json" LogicalName="catalog.json" />
+    <EmbeddedResource Include="annotations.json" LogicalName="annotations.json" />
+  </ItemGroup>
+
   <!-- 直接引用宿主（星火编辑器 version-13）自带的程序集，保证版本与运行时完全一致，无需 NuGet。
        全部 Private=false：不拷贝到输出目录，宿主进程已加载这些程序集。 -->
   <ItemGroup>

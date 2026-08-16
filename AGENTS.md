@@ -32,7 +32,9 @@ sce_app_editor-patch/
 ├── patches/
 │   └── <包名>/<模块id>/main.lua  # 内置补丁模块（不改库源码，编译期 include_str! 嵌入）
 ├── csharp/
-│   └── bgd_mcp_bridge/    # .NET 9 类库：编辑器进程内 MCP 桥（编译期 include_bytes! 嵌入 exe）
+│   ├── bgd_mcp_bridge/    # .NET 9 类库：编辑器进程内 MCP 桥（编译期 include_bytes! 嵌入 exe）
+│   │                      #   0.5.0 起：Gateway 架构，catalog.json/annotations.json 嵌入 dll
+│   └── make_catalog/      # 工具：反射扫描宿主 dll 生成 catalog.json 骨架（编辑器升级后重跑）
 ├── slots/
 │   └── <包名>/<库版本>/<源码目录结构>/file.lua  # 插槽文件（改库源码，版本敏感，include_dir 嵌入）
 ├── examples/
@@ -88,7 +90,9 @@ sce_app_editor-patch/
 
 - dll 在勾选补丁模块时部署到 `<运行根>/version-<api>/` 并登记 `sce.deps.json`（备份 `sce.deps.json_bak`）；关闭时摘除；「还原补丁」时整体恢复。
 - 编辑器内经 `SCE.Common.csharp_activate_window` 激活，隐藏窗口内跑 HttpListener（127.0.0.1:39177+）暴露 HTTP JSON-RPC 与 MCP `/mcp` 端点；C#↔Lua 双向走事件总线（`bgd_mcp_cmd`/`bgd_mcp_ack`/`bgd_mcp_event`）。
-- 详见 [doc/research/csharp-module-injection.md](doc/research/csharp-module-injection.md)。
+- **0.5.0 起为 Gateway 架构**：tools/list 恒定 10 个元工具，全部能力进能力目录（`catalog.json` 构建期生成 + `annotations.json` 人工标注层，均编译期嵌入 dll）。能力通道：svc（DI 服务反射，服务级准入制）/datacore（IDataCore 手写封装）/cpp（静态基元方法）/cmd+lua（Lua 桥）/sys。安全分级 read/write/danger（danger 需 config.json `danger_allow` 放行），write/danger 调用写审计日志。
+- 编辑器升级后：重跑 `dotnet run --project csharp/make_catalog` 重新生成 catalog.json（make_slots 同款约定），再构建 dll。
+- 详见 [doc/research/csharp-module-injection.md](doc/research/csharp-module-injection.md) 与 [doc/research/mcp-integration-guide.md](doc/research/mcp-integration-guide.md)。
 
 ### 开发工具（examples/）
 

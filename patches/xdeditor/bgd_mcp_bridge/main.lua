@@ -253,6 +253,20 @@ handlers.list_commands = function()
     return list_commands()
 end
 
+-- run_lua 兜底逃生舱（0.5.0 M7）：pcall 执行任意 Lua。默认 danger 级关闭，
+-- 需在 <引擎运行根>/logs/bgd_csharp/config.json 的 danger_allow 放行「lua.run_lua」。
+handlers.run_lua = function(params)
+    if type(params) ~= 'table' or type(params.code) ~= 'string' then
+        error('params.code 缺失或非法')
+    end
+    local fn, load_err = load(params.code, 'run_lua')
+    if not fn then
+        error('Lua 编译失败: ' .. tostring(load_err))
+    end
+    local ok, res = xpcall(fn, debug.traceback)
+    return { ok = ok and true or false, result = tostring(res) }
+end
+
 handlers.get_status = function()
     local map_path, debugging
     if MainFrame then

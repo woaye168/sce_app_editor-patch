@@ -1,3 +1,4 @@
 target/
 csharp/**/bin/
 csharp/**/obj/
+test/temp/

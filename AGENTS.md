@@ -40,6 +40,7 @@ sce_app_editor-patch/
 ├── examples/
 │   ├── decrypt_mirror.rs  # 工具：整库解密出明文镜像（研究用）
 │   └── make_slots.rs      # 工具：生成 slots 插槽文件（解密+GBK转UTF-8+注入）
+├── test/                  # 自测自修（见「自测自修流程」）：case 用例 / temp 临时文件 / knowledge 新知识 / report 测试报告
 ├── .trae/skills/          # 流程技能（patch-module/lib-onboard）+ 库知识库（sce-lib-<库>-<版本>）
 ├── doc/requirements/      # 各版本需求文档
 ├── doc/research/          # 研究成果沉淀（csharp 模块注入、编辑器调试控制等）
@@ -125,6 +126,42 @@ git tag v0.x.0 && git push origin v0.x.0   # 触发 CI：注入版本号 → 构
 - **C# 桥 dll 是构建前置**：CI 需先 `dotnet build csharp/bgd_mcp_bridge`（Release x64）再 `cargo build`（Rust 以 `include_bytes!` 嵌入该 dll）；本地 `cargo build` 前同样需先构建 csharp dll
 - **本应用无自我更新**：仓库私有，版本更新由宿主 bgd_sce_tools 应用市场负责（registry.json 走 API 下载 asset，需工具侧配置 GitHub Token——fine-grained PAT 需把本仓库加入授权列表）
 - 发版后同步更新 bgd_sce_plugins 的 `registry.json`（`version`/`tag`），`asset_name` 恒为 `sce_app_editor-patch.exe`
+
+## 自测自修流程（开发完成后必走）
+
+### 1. 测试前：建立用例
+
+- 按本轮开发目标编写测试用例，放入 `test/case/`。
+
+### 2. 测试过程：即时调试 + 自测自修
+
+改完代码后按改动对象选择下方生效方式，反复自测自修直至所有用例通过：
+
+| 改动对象 | 即时调试生效方式 |
+| --- | --- |
+| C# 扩展（bgd_mcp_bridge） | 重新编译后把 dll 复制到 `<编辑器根>../version-13/`（即 `D:/sce_online/version-13`），**需重启编辑器**才能生效 |
+| Lua 补丁（xdeditor 包） | 修改后复制到 `<编辑器根>/res/_m/xdeditor/<包版本号>/xdeditor/sce_app_editor-patch/<补丁模块目录>` 同层级 |
+| Lua 补丁（script 包） | 修改后复制到 `<编辑器根>/res/_m/script/<包版本号>/script/common/sce_app_editor-patch/<补丁模块目录>` 同层级 |
+
+> 说明：两个 Lua 补丁目标即「库 require 根下的补丁目录」（xdeditor 包根 / script 包 `common/` 下），`<补丁模块目录>` 与 `patches/<pkg>/<id>/` 同名；`<编辑器根>` 见「编辑器包定位链」（本机为 `D:/sce_online/update/editor-pd.spark.xd.com`，注意首字母大小写）。
+
+启动编辑器（自测用示例，api 版本 13）：
+
+```bash
+D:/sce_online/星火编辑器.exe -inner -winui_material_editor -winui_resource_store -editor_api_version=13 -file_path="C:/Users/woaye/Documents/SCE Projects/test_res002/project.sce"
+```
+
+- 测试过程中的临时文件放入 `test/temp/`（收尾时随版本归档）。
+- 测试中产生的新知识、踩坑结论随手记入 `test/knowledge/`（收尾时再完善落盘）。
+
+### 3. 自测自修完毕：收尾
+
+当本轮所有用例全部测试并修复完毕后，依次完成：
+
+1. 输出本轮测试报告，放入 `test/report/`。
+2. 检查 `test/knowledge/` 中的新知识：务必验证、研究、完善，形成知识文档存入 `doc/research/`。
+3. 把 `test/` 中本轮新增的全部内容归档到版本号文件夹（版本号 = 上个版本号的修定位 + 1）。
+4. 本地 git 提交。
 
 ## 提交规范
 

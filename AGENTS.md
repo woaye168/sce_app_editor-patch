@@ -163,7 +163,6 @@ D:/sce_online/星火编辑器.exe -inner -winui_material_editor -winui_resource_
 1. 输出本轮测试报告，放入 `test/report/`。
 2. 检查 `test/knowledge/` 中的新知识：务必验证、研究、完善，形成知识文档存入 `doc/research/`。
 3. 把 `test/` 中本轮新增的全部内容归档到版本号文件夹（版本号 = 上个版本号的修定位 + 1）。
-4. 本地 git 提交。
 
 ## 提交规范
 

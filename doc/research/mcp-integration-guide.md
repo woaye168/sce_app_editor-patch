@@ -1,7 +1,7 @@
 # bgd_mcp_bridge —— 外部 AI 工具接入指南
 
 > 适用版本：sce_app_editor-patch ≥ 0.5.0（海量工具 MCP 架构：Gateway + 能力目录 + 元工具搜索）
-> 服务形态：星火编辑器进程内 HTTP 服务，固定地址 `http://127.0.0.1:39177`（**固定端口，不自动跳变**）
+> 服务形态：星火编辑器进程内 HTTP 服务，默认地址 `http://127.0.0.1:39177`（配置端口不可用时自动向后避让，实际端口以 `<引擎运行根>/logs/bgd_csharp/port` 文件为准）
 
 启用条件：编辑器补丁应用中勾选「MCP 桥（外部 AI 控制）」→ 重启星火编辑器。服务随编辑器进程存亡（编辑器关闭则服务下线）。
 
@@ -103,7 +103,8 @@ catalog.json 构建期生成并嵌入 dll（头记录引擎版本）。编辑器
 
 - C# 侧日志：`<引擎运行根>/logs/bgd_csharp/bgd_csharp-YYYY-MM-DD-HH.log`（按小时滚动）
 - 审计日志：`<引擎运行根>/logs/bgd_csharp/audit-YYYY-MM-DD.log`
-- 端口文件：`<引擎运行根>/logs/bgd_csharp/port`（内容为 `39177`）
+- 端口文件：`<引擎运行根>/logs/bgd_csharp/port`（内容为实际监听端口，如 `39177`）
 - Lua 侧日志：编辑器主日志中 `[bgd_mcp_bridge]` 前缀行
 - 连接失败即视为「编辑器不在线」（服务随编辑器进程存亡）
-- 端口被占用时服务**不启动**并记日志；Windows 下 `netstat -ano | findstr 39177` 找占用 PID
+- 端口不可用时服务**自动向后避让**（最多探测 100 个候选，跳过系统保留段），实际端口见端口文件与 WARN 日志；客户端以端口文件为准
+- 「端口被占用但 netstat 查不到进程、换临近端口也失败」= 端口落在**系统保留端口段**（Hyper-V/WSL/winnat 动态保留）内：`netsh int ipv4 show excludedportrange tcp` 查看保留段，把 mcp_port 配置到保留段之外；真被进程占用时 `netstat -ano | findstr <端口>` 找占用 PID

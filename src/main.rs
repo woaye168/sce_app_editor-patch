@@ -653,7 +653,8 @@ impl EditorPatchApp {
         ui.add_space(2.0);
         ui.weak("默认 39177。端口被占用时可改为其他端口（1025-65534）。");
         ui.weak("保存后需重启星火编辑器生效；外部 AI 工具按 http://127.0.0.1:<端口>/mcp 配置。");
-        ui.weak("刻意不做端口自动跳变——AI 工具按 URL 静态配置，跳端口会导致已配置客户端失效。");
+        ui.weak("注意避开系统保留端口段（Hyper-V/WSL 会动态保留整段，netstat 查不到占用），可用 netsh int ipv4 show excludedportrange tcp 查看。");
+        ui.weak("启动时若配置端口不可用（被占/在保留段内），服务会自动向后避让并把实际端口写入 logs/bgd_csharp/port 文件。");
     }
 
     fn ui_help(ui: &mut egui::Ui) {

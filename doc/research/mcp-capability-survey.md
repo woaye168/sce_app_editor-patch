@@ -102,11 +102,23 @@ public interface IDataCore {
 
 **结论（已并入 0.5.0 v3）**：svc 目录实行**服务级准入制**——默认整体不开放，annotations.json 逐服务人工准入。准入动作 = 在隔离地图里对该服务每个 read 级方法逐个实调确认无崩溃。对 svc 的安全模型是「未知即不开放」，比一般条目的「未知即 write」更严。
 
-### 6.2 IDataCore.CommitChanges 可撤销性：待实证（真机验收项）
+### 6.2 IDataCore.CommitChanges 可撤销性：**已实证——不可撤销**（2026-08-17 真机）
 
-方案默认 `datacore.write` auto_commit=true 的前提是「commit 可挽回」。但 CommitChanges 是否进入编辑器 undo 栈（Ctrl+Z 可撤销）**本研究未覆盖**。若不可撤销，AI 误写无法用编辑器常规手段回滚，写类能力应按 danger 对待、单写默认不自动提交（重开地图丢弃暂存即回滚）。实证方法：隔离地图 AddGameChange + CommitChanges 后检查编辑器 undo 可用性与数据落盘时机。
+实证方法：隔离地图（test_res002）经 `datacore.write`（auto_commit=true）提交 `opened_slots=[9]` → `SCE.GetUndoRedoManager()` `can_undo()=true` → 连续 `undo()` 至栈空（3 次）→ 回读仍为 `[9]`。**CommitChanges 落盘的修改不进 UndoRedoManager 撤销栈，Ctrl+Z 不可撤销。**
 
-> 实现注记（2026-08-16）：0.5.0 代码已按 v3 草案落地（`Executors.cs` WriteAsync/BatchWriteAsync，auto_commit 默认 true）。**实证仍需真机执行**（本仓库开发机无法自动化驱动编辑器 GUI），结论得出前维持草案默认；若结论为「不可撤销」，改动点：Executors.cs 两处 auto_commit 默认值 → false，annotations.json datacore 写类 risk → danger。
+已据此定稿（0.5.0 自测自修轮落地）：
+
+- `Executors.cs` WriteAsync/BatchWriteAsync 的 auto_commit 默认 **false**（AI 必须显式 `auto_commit=true`；暂存未提交重开地图即丢弃，构成天然回滚）
+- annotations.json `datacore.write` / `datacore.batch_write` risk 升 **danger**（需 config.json `danger_allow` 放行）
+
+附带实证发现（同轮修复）：
+
+- `DataDecimal.ChangeValue` 把 decimal 直传 P/Invoke，而 `DataValMarshaller` 封送白名单（bool/short/int/long/float/double/string）**不含 decimal**，必抛 `InvalidDataException`——引擎侧 Bug。小数写入改走自实现 `DataDouble`（IDataType 是公开接口，double 在白名单内）。
+- `DataCore.AddGameChange` 内部固定定位 `IsMatchKey("Game")` 的顶层 pair，**写路径相对 Game 对**（官方调用方 PlayerSettings 传 `["player_setting"]` 不带 Game 前缀）；执行器兼容剥掉首段 "Game"。
+- 文本（多语言）字段需 `MakeText`（ENSVM_PASTE + Default 子键），`MakeString` 直写返回 false；执行器对字符串值自动 fallback MakeText。
+- 数编**不允许新建 schema 外字段**，只能写既有字段。
+- **编辑器对 first-chance 异常记 `logs/CSharp/Exception/` 日志并弹「发生异常」模态**（即使异常被 catch），模态期间 BridgeWindow DispatcherQueue 不泵、全部 UI 调用超时——桥内业务错误一律返回错误节点，绝不抛异常。
+- SCE 数编 list 为 **1 基**（`{"1":9}`），读投影按 1 基/0 基连续 int 键识别数组。
 
 ### 6.3 版本漂移的检测只是半个闭环
 

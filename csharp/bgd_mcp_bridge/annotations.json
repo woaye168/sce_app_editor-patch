@@ -31,18 +31,18 @@
       "example": "{\"id\":\"datacore.read\",\"args\":{\"link\":\"$$.map_config.dflt.root\",\"path\":[\"Game\",\"opened_slots\"]}}"
     },
     "datacore.write": {
-      "description": "写数编字段（默认写完即提交落盘）",
+      "description": "写数编字段（默认仅暂存不落盘：显式 auto_commit=true 才提交；commit 不可 Ctrl+Z 撤销，故 danger 级需放行）",
       "aliases": ["write_entry", "写数编", "改数编"],
       "tags": ["数编", "datacore", "修改"],
-      "risk": "write",
+      "risk": "danger",
       "precondition": "地图已打开",
-      "example": "{\"id\":\"datacore.write\",\"args\":{\"link\":\"$$.map_config.dflt.root\",\"path\":[\"Game\",\"xxx\"],\"value\":123}}"
+      "example": "{\"id\":\"datacore.write\",\"args\":{\"link\":\"$$.map_config.dflt.root\",\"path\":[\"Game\",\"opened_slots\"],\"value\":[1,2],\"auto_commit\":true}}"
     },
     "datacore.batch_write": {
-      "description": "批量写数编（全部暂存后只提交一次，避免逐字段触发引擎同步/界面刷新）",
+      "description": "批量写数编（全部暂存后只提交一次；默认不自动提交，显式 auto_commit=true 才落盘；commit 不可撤销，danger 级需放行）",
       "aliases": ["batch_write", "批量写数编", "批量改数编"],
       "tags": ["数编", "datacore", "批量", "修改"],
-      "risk": "write",
+      "risk": "danger",
       "precondition": "地图已打开"
     },
     "lua.list_commands": {

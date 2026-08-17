@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Net;
 using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace BgdMcpBridge;
 
@@ -19,8 +21,9 @@ namespace BgdMcpBridge;
 /// </summary>
 public sealed class McpServer
 {
-    /// <summary>固定监听端口。刻意<b>不</b>做端口自动跳变——MCP 客户端（AI 工具/编辑器）通常按 URL 静态
-    /// 配置服务地址，端口一变所有已配置客户端全部失效。固定端口才能保证「配置一次永久可用」。</summary>
+    /// <summary>默认监听端口。优先固定不跳变（MCP 客户端通常按 URL 静态配置）；
+    /// 但配置端口不可用（被占/落在系统保留段）时自动向后避让——绑不上的端口坚持不跳等于服务永死，
+    /// 避让后实际端口写 logs/bgd_csharp/port 文件并记 WARN 日志。</summary>
     public const int PortFixed = 39177;
 
     /// <summary>MCP 协议版本。</summary>
@@ -101,24 +104,109 @@ public sealed class McpServer
         return PortFixed;
     }
 
-    /// <summary>启动监听（固定端口）。成功返回 true；端口被占则记日志返回 false（不抛异常）。</summary>
+    // 系统保留 TCP 端口段缓存（启动时探测一次）
+    private static List<(int Start, int End)>? _excludedRanges;
+
+    /// <summary>
+    /// 探测系统保留 TCP 端口段（netsh int ipv4 show excludedportrange tcp）。
+    /// Hyper-V/WSL/winnat 会动态保留整段端口，段内端口任何进程都绑不上，
+    /// 报「另一个程序正在使用此文件」(ERROR_SHARING_VIOLATION)，但 netstat 查不到占用进程。
+    /// 探测失败静默按无保留段处理（不影响主流程）。
+    /// </summary>
+    private static List<(int Start, int End)> GetExcludedTcpPortRanges()
+    {
+        if (_excludedRanges != null) return _excludedRanges;
+        var ranges = new List<(int, int)>();
+        try
+        {
+            var psi = new ProcessStartInfo("netsh", "int ipv4 show excludedportrange tcp")
+            {
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var p = Process.Start(psi);
+            if (p != null)
+            {
+                string output = p.StandardOutput.ReadToEnd();
+                p.WaitForExit(5000);
+                foreach (var line in output.Split('\n'))
+                {
+                    // 数据行形如 "     39173       39272      "（可带 * 后缀）；表头/标题行不匹配
+                    var m = Regex.Match(line, @"^\s*(\d+)\s+(\d+)\s*\*?\s*$");
+                    if (m.Success &&
+                        int.TryParse(m.Groups[1].Value, out int s) &&
+                        int.TryParse(m.Groups[2].Value, out int e) &&
+                        s > 0 && e >= s)
+                    {
+                        ranges.Add((s, e));
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Warn($"探测系统保留端口段失败（按无保留段处理）: {ex.Message}");
+        }
+        _excludedRanges = ranges;
+        return ranges;
+    }
+
+    private static bool IsExcluded(int port, List<(int Start, int End)> ranges)
+    {
+        foreach (var (s, e) in ranges)
+        {
+            if (port >= s && port <= e) return true;
+        }
+        return false;
+    }
+
+    /// <summary>启动监听。优先用配置端口；不可用时自动向后避让（跳过系统保留段），实际端口写端口文件并记日志。</summary>
     public bool Start()
     {
         try
         {
-            int port = ResolvePort();
-            try
+            int configured = ResolvePort();
+            var excluded = GetExcludedTcpPortRanges();
+            if (IsExcluded(configured, excluded))
             {
-                var listener = new HttpListener();
-                listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-                listener.Start();
-                _listener = listener;
-                Port = port;
+                // 系统保留段（Hyper-V/WSL/winnat 动态保留）：netstat 查不到占用进程、换段内端口也必失败，极具迷惑性
+                Logger.Warn($"端口 {configured} 落在系统保留端口段内（Hyper-V/WSL/winnat 动态保留，netstat 不可见），本次启动自动向后避让。" +
+                            "如需固定端口，请改配置到保留段之外（netsh int ipv4 show excludedportrange tcp 查看）。");
             }
-            catch (Exception ex)
+
+            const int MaxProbe = 100;
+            for (int i = 0; i < MaxProbe; i++)
             {
-                // 端口被占：不跳端口（保证已配置客户端可用），明确报错提示用户排查占用进程
-                Logger.Error($"端口 {port} 被占用，HTTP 服务未启动。请关闭占用该端口的进程后重启编辑器。详情: {ex.Message}");
+                int port = configured + i;
+                if (port > 65534) break;
+                if (IsExcluded(port, excluded)) continue;
+                try
+                {
+                    var listener = new HttpListener();
+                    listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+                    listener.Start();
+                    _listener = listener;
+                    Port = port;
+                    if (port != configured)
+                    {
+                        Logger.Warn($"端口 {configured} 不可用，已自动避让到 {port}。MCP 客户端若按固定 URL 配置请同步修改（实际端口见 logs/bgd_csharp/port 文件）。");
+                    }
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    if (i == 0)
+                    {
+                        Logger.Warn($"端口 {configured} 绑定失败: {ex.Message}（尝试向后避让）");
+                    }
+                }
+            }
+
+            if (_listener == null)
+            {
+                Logger.Error($"端口 {configured} 起向后 {MaxProbe} 个候选端口全部不可用，HTTP 服务未启动。" +
+                             "请排查占用进程（netstat -ano | findstr <端口>）与系统保留端口段（netsh int ipv4 show excludedportrange tcp）。");
                 return false;
             }
 

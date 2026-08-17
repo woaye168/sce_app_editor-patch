@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SCEModule.DataCore.Interface;
+using SceDataEditor = SCE.CppInterface.DataEditor.DataEditor;
 using SceDataLink = SCE.Module.DataCore.DataLink;
 using SceEditor = SCEModule.Editor;
 
@@ -278,20 +279,28 @@ public static class DataCoreExecutor
         {
             var core = GetCore();
             var entry = core.GetEntryNode(new SceDataLink(link));
-            if (entry == null) throw new InvalidOperationException($"entry 不存在: {link}");
+            // 业务错误一律返回错误节点、不抛异常：编辑器对 first-chance 异常弹「发生异常」模态并卡死 UI 队列
+            if (entry == null) return ErrNode("ENTRY_NOT_FOUND", $"entry 不存在: {link}");
             if (path == null || path.Count == 0)
             {
                 return DataObjToJson(entry, 0);
             }
-            IDataObj cur = entry;
+            IDataObj? cur = entry;
             for (int i = 0; i < path.Count; i++)
             {
                 if (i == path.Count - 1)
                 {
-                    return ValToJson(cur, path[i]);
+                    if (cur == null || !TryValToJson(cur, path[i], out var v))
+                    {
+                        return ErrNode("FIELD_NOT_FOUND", $"字段不存在: {path[i]}（路径 {string.Join('.', path.Select(x => x?.ToString()))}）");
+                    }
+                    return v;
                 }
-                cur = cur.TryGet<IDataObj>(path[i] ?? "")
-                    ?? throw new InvalidOperationException($"路径段不存在: {string.Join('.', path.Select(x => x?.ToString()))}（止于 {path[i]}）");
+                cur = cur?.TryGet<IDataObj>(path[i] ?? "");
+                if (cur == null)
+                {
+                    return ErrNode("PATH_NOT_FOUND", $"路径段不存在: {string.Join('.', path.Select(x => x?.ToString()))}（止于 {path[i]}）");
+                }
             }
             return DataObjToJson(cur, 0);
         }, timeoutMs).ConfigureAwait(false);
@@ -305,25 +314,38 @@ public static class DataCoreExecutor
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: link");
         }
-        var path = ParsePath(args?["path"]);
+        var path = StripGamePrefix(ParsePath(args?["path"]));
         if (path == null || path.Count == 0)
         {
-            return OpResult.Fail("PARAM_INVALID", "Missing required argument: path", "path 为字符串点路径或数组段，如 [\"Game\",\"opened_slots\"]");
+            return OpResult.Fail("PARAM_INVALID", "Missing required argument: path", "path 为字符串点路径或数组段，如 [\"Game\",\"opened_slots\"]（相对 Game 对，前缀 \"Game\" 可省）");
         }
         var value = args?["value"];
-        bool autoCommit = args?["auto_commit"]?.GetValue<bool>() ?? true; // AI 友好默认：不遗漏落盘
+        // R2 实证结论（2026-08-17）：CommitChanges 落盘不进编辑器 undo 栈，不可 Ctrl+Z 撤销。
+        // 因此单写默认不自动提交——AI 必须显式 auto_commit=true；暂存未提交的修改重开地图即丢弃（天然回滚）。
+        bool autoCommit = args?["auto_commit"]?.GetValue<bool>() ?? false;
 
         var ui = await UiThreadInvoker.InvokeAsync(() =>
         {
             var core = GetCore();
             var data = MakeData(core, value);
             bool ok = core.AddGameChange(link, path, data);
-            // 数值类型模糊时 MakeInt 失败自动 fallback MakeDecimal 重试一次
+            // 目标字段为小数类型时 MakeInt 可能失败，用 DataDouble 重试一次
+            //（不能 fallback MakeDecimal：官方 DataDecimal 直传 decimal 给封送器必抛 InvalidDataException，引擎侧 Bug）
             if (!ok && value != null && value.GetValueKind() == JsonValueKind.Number && ArgumentBinder.TryGet<int>(value, out var intVal))
             {
-                ok = core.AddGameChange(link, path, core.MakeDecimal(intVal));
+                ok = core.AddGameChange(link, path, new DataDouble(intVal));
             }
-            if (!ok) throw new InvalidOperationException("AddGameChange 失败（link 或路径无效）");
+            // 文本（多语言）字段需 MakeText（ENSVM_PASTE + Default 子键），MakeString 直写返回失败
+            if (!ok && value != null && value.GetValueKind() == JsonValueKind.String)
+            {
+                ok = core.AddGameChange(link, path, core.MakeText(value.GetValue<string>()));
+            }
+            if (!ok)
+            {
+                return ErrNode("WRITE_FAILED",
+                    $"AddGameChange 失败: link={link} path={string.Join('.', path.Select(x => x?.ToString()))}",
+                    "path 相对 Game 对（\"Game\" 前缀可省）；数编不允许新建 schema 外字段，只能写既有字段");
+            }
             bool committed = false;
             if (autoCommit) committed = core.CommitChanges();
             return (JsonNode?)new JsonObject { ["applied"] = true, ["committed"] = committed };
@@ -337,7 +359,7 @@ public static class DataCoreExecutor
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: changes", "changes 为 [{link, path, value}...] 数组");
         }
-        bool autoCommit = args["auto_commit"]?.GetValue<bool>() ?? true;
+        bool autoCommit = args["auto_commit"]?.GetValue<bool>() ?? false; // 同 R2 实证：默认不自动提交
         string onError = args["on_error"]?.GetValue<string>() ?? "abort";
 
         var ui = await UiThreadInvoker.InvokeAsync(() =>
@@ -348,7 +370,7 @@ public static class DataCoreExecutor
             {
                 var c = changes[i] as JsonObject;
                 var link = c?["link"]?.GetValue<string>();
-                var path = ParsePath(c?["path"]);
+                var path = StripGamePrefix(ParsePath(c?["path"]));
                 if (string.IsNullOrEmpty(link) || path == null || path.Count == 0)
                 {
                     return BatchFail(i, "change 缺少 link/path", applied, onError == "commit_partial", core);
@@ -357,7 +379,11 @@ public static class DataCoreExecutor
                 bool ok = core.AddGameChange(link, path, data);
                 if (!ok && c?["value"] != null && c["value"]!.GetValueKind() == JsonValueKind.Number && ArgumentBinder.TryGet<int>(c["value"]!, out var intVal))
                 {
-                    ok = core.AddGameChange(link, path, core.MakeDecimal(intVal));
+                    ok = core.AddGameChange(link, path, new DataDouble(intVal));
+                }
+                if (!ok && c?["value"] != null && c["value"]!.GetValueKind() == JsonValueKind.String)
+                {
+                    ok = core.AddGameChange(link, path, core.MakeText(c["value"]!.GetValue<string>()));
                 }
                 if (!ok)
                 {
@@ -392,6 +418,20 @@ public static class DataCoreExecutor
     {
         return SceEditor.GetService<IDataCore>()
             ?? throw new InvalidOperationException("IDataCore 服务不可用");
+    }
+
+    /// <summary>
+    /// 写路径相对 Game 对（DataCore.AddGameChange 内部固定定位 IsMatchKey("Game") 的 pair，
+    /// 官方调用方如 PlayerSettings 传 ["player_setting"] 不带 Game 前缀）。
+    /// 为与读路径（含 Game 段）一致，首段为 "Game" 时剥掉。
+    /// </summary>
+    private static List<object?>? StripGamePrefix(List<object?>? path)
+    {
+        if (path != null && path.Count > 0 && path[0] is string s && s == "Game")
+        {
+            path = path.GetRange(1, path.Count - 1);
+        }
+        return path;
     }
 
     /// <summary>path 支持字符串点路径与数组段；数字段转 int（List 索引）。</summary>
@@ -430,8 +470,8 @@ public static class DataCoreExecutor
             case JsonValueKind.False: return core.MakeBool(false);
             case JsonValueKind.Number:
                 if (ArgumentBinder.TryGet<int>(node, out var i)) return core.MakeInt(i);
-                if (ArgumentBinder.TryGet<decimal>(node, out var dec)) return core.MakeDecimal(dec);
-                return core.MakeDecimal((decimal)node.GetValue<double>());
+                // 小数走自实现 DataDouble（官方 MakeDecimal 的封送链必抛 InvalidDataException，见 DataDouble 注释）
+                return new DataDouble(node.GetValue<double>());
             case JsonValueKind.String: return core.MakeString(node.GetValue<string>());
             case JsonValueKind.Array:
             {
@@ -457,17 +497,31 @@ public static class DataCoreExecutor
 
     private const int ReadMaxDepth = 8;
 
-    private static JsonNode? ValToJson(IDataObj obj, object? key)
+    /// <summary>
+    /// 业务错误节点（ok=false）。<b>禁止</b>用抛异常表达业务错误：编辑器对 first-chance 异常
+    /// 记 CSharp\Exception 日志并可能弹「发生异常」模态，模态期间 DispatcherQueue 不泵，全部 UI 调用超时。
+    /// UiToOp 识别 ok=false 对象并作为 error 透出。
+    /// </summary>
+    private static JsonObject ErrNode(string code, string message, string? hint = null)
+    {
+        var o = new JsonObject { ["ok"] = false, ["code"] = code, ["message"] = message };
+        if (hint != null) o["hint"] = hint;
+        return o;
+    }
+
+    private static bool TryValToJson(IDataObj obj, object? key, out JsonNode? result)
     {
         foreach (IDataPair pair in obj)
         {
             if (KeyEquals(pair.Key?.Value, key))
             {
                 var v = pair.Value?.Value;
-                return v is IDataObj child ? DataObjToJson(child, 0) : JsonValue.Create(v?.ToString());
+                result = v is IDataObj child ? DataObjToJson(child, 0) : JsonValue.Create(v?.ToString());
+                return true;
             }
         }
-        throw new InvalidOperationException($"字段不存在: {key}");
+        result = null;
+        return false;
     }
 
     private static bool KeyEquals(object? a, object? b)
@@ -489,9 +543,10 @@ public static class DataCoreExecutor
         {
             return JsonValue.Create($"<枚举失败: {ex.Message}>");
         }
-        // 全 int 键且 0..n-1 连续 → 数组形态
+        // 全 int 键且连续 → 数组形态（SCE 数编 list 为 1 基，兼容 0 基）
         bool isList = pairs.Count > 0 && pairs.All(p => p.Key is int)
-            && pairs.Select(p => (int)p.Key!).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, pairs.Count));
+            && (pairs.Select(p => (int)p.Key!).OrderBy(x => x).SequenceEqual(Enumerable.Range(0, pairs.Count))
+                || pairs.Select(p => (int)p.Key!).OrderBy(x => x).SequenceEqual(Enumerable.Range(1, pairs.Count)));
         if (isList)
         {
             var arr = new JsonArray();
@@ -536,11 +591,32 @@ public static class DataCoreExecutor
             return OpResult.Fail("INVOKE_ERROR", ex.Message, exceptionType: ex.GetType().FullName);
         }
         var value = ui.Value;
-        // write 系返回 {ok:false,...} 的部分失败语义对象需原样透出
-        if (value is JsonNode node && node is JsonObject o && o["ok"]?.GetValue<bool>() == false)
+        // write 系返回 {ok:false,...} 的业务错误节点作为 error 原样透出（保留 failed_index 等结构）
+        if (value is JsonObject o && o["ok"]?.GetValue<bool>() == false)
         {
-            return new OpResult(false, node, null);
+            return new OpResult(false, null, o);
         }
         return OpResult.Success(value as JsonNode);
+    }
+
+    /// <summary>
+    /// 自实现小数 IDataType。官方 DataDecimal.ChangeValue 把 decimal 直传 P/Invoke，
+    /// 而 DataValMarshaller 封送白名单（bool/short/int/long/float/double/string）不含 decimal，
+    /// 必抛 InvalidDataException("Found invalid data while decoding")——引擎侧 Bug。
+    /// double 在白名单内（封送为 VT_DECIMAL 兼容），故小数一律走本类。
+    /// </summary>
+    private sealed class DataDouble(double value) : IDataType
+    {
+        public object Value => value;
+
+        public bool ChangePair(nint argPtr, object prop)
+        {
+            return SceDataEditor.DataEditor_PairMake(argPtr, prop, value) != 0;
+        }
+
+        public bool ChangeValue(string link, nint ptr, List<object?> path)
+        {
+            return SceDataEditor.DataEditor_InitEntryNodeSetValueArg(link, ptr, path, SceDataEditor.EnumEntryNodeSetValueMode.ENSVM_NORMAL, value) == 0;
+        }
     }
 }

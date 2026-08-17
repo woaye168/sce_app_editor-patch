@@ -57,6 +57,9 @@ public static class UiThreadInvoker
             var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs)).ConfigureAwait(false);
             if (completed != tcs.Task)
             {
+                // 观察掉队任务：超时后 lambda 若再抛异常，不观察会被 finalizer 抛 UnobservedTaskException
+                _ = tcs.Task.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
                 Logger.Warn($"UI 线程调用超时({timeoutMs}ms)，疑似模态阻塞（弹窗未抑制？）");
                 return new UiResult(false, null, null, true);
             }

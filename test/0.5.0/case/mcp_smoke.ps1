@@ -182,6 +182,16 @@ try {
     Check 'M5-3 danger_denied 事件' ($evTxt -match 'danger_denied') $evTxt.Substring(0, [Math]::Min(400, $evTxt.Length))
 } catch { Check 'M5-3 /events' $false $_.Exception.Message }
 
+# ---- N 异常免疫（类型不符参数零异常，防编辑器「发生异常」模态） ----
+try {
+    $r1 = Rpc 'invoke_capability' @{ id = 'sys.server_info'; timeout_ms = '5000' }
+    Check 'N-1 timeout_ms 字符串宽容' ($null -eq $r1.error) ($r1 | ConvertTo-Json -Compress -Depth 6)
+    $r2 = Rpc 'invoke_capability' @{ id = 'sys.server_info'; timeout_ms = @{ x = 1 } }
+    Check 'N-2 timeout_ms 非法类型回落默认' ($null -eq $r2.error) ($r2 | ConvertTo-Json -Compress -Depth 6)
+    $r3 = Rpc 'search_capabilities' @{ query = '文件'; limit = '3' }
+    Check 'N-3 limit 字符串宽容' ($null -eq $r3.error) ($r3 | ConvertTo-Json -Compress -Depth 6)
+} catch { Check 'N 异常免疫' $false $_.Exception.Message }
+
 # ---- M5-2 审计日志 ----
 $today = Get-Date -Format 'yyyy-MM-dd'
 $audit = "$engineRoot\logs\bgd_csharp\audit-$today.log"

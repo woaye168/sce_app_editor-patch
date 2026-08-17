@@ -268,7 +268,7 @@ public static class DataCoreExecutor
 
     private static async Task<OpResult> ReadAsync(JsonObject? args, int timeoutMs)
     {
-        var link = args?["link"]?.GetValue<string>();
+        var link = JsonRead.Str(args, "link");
         if (string.IsNullOrEmpty(link))
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: link", "提供数编 entry 完整 link，如 $$.map_config.dflt.root");
@@ -309,7 +309,7 @@ public static class DataCoreExecutor
 
     private static async Task<OpResult> WriteAsync(JsonObject? args, int timeoutMs)
     {
-        var link = args?["link"]?.GetValue<string>();
+        var link = JsonRead.Str(args, "link");
         if (string.IsNullOrEmpty(link))
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: link");
@@ -322,7 +322,7 @@ public static class DataCoreExecutor
         var value = args?["value"];
         // R2 实证结论（2026-08-17）：CommitChanges 落盘不进编辑器 undo 栈，不可 Ctrl+Z 撤销。
         // 因此单写默认不自动提交——AI 必须显式 auto_commit=true；暂存未提交的修改重开地图即丢弃（天然回滚）。
-        bool autoCommit = args?["auto_commit"]?.GetValue<bool>() ?? false;
+        bool autoCommit = JsonRead.Bool(args, "auto_commit", false);
 
         var ui = await UiThreadInvoker.InvokeAsync(() =>
         {
@@ -359,8 +359,8 @@ public static class DataCoreExecutor
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: changes", "changes 为 [{link, path, value}...] 数组");
         }
-        bool autoCommit = args["auto_commit"]?.GetValue<bool>() ?? false; // 同 R2 实证：默认不自动提交
-        string onError = args["on_error"]?.GetValue<string>() ?? "abort";
+        bool autoCommit = JsonRead.Bool(args, "auto_commit", false); // 同 R2 实证：默认不自动提交
+        string onError = JsonRead.Str(args, "on_error") ?? "abort";
 
         var ui = await UiThreadInvoker.InvokeAsync(() =>
         {
@@ -369,7 +369,7 @@ public static class DataCoreExecutor
             for (int i = 0; i < changes.Count; i++)
             {
                 var c = changes[i] as JsonObject;
-                var link = c?["link"]?.GetValue<string>();
+                var link = JsonRead.Str(c, "link");
                 var path = StripGamePrefix(ParsePath(c?["path"]));
                 if (string.IsNullOrEmpty(link) || path == null || path.Count == 0)
                 {
@@ -445,7 +445,7 @@ public static class DataCoreExecutor
             {
                 if (seg == null) { list.Add(null); continue; }
                 if (seg.GetValueKind() == JsonValueKind.Number && ArgumentBinder.TryGet<int>(seg, out var i)) list.Add(i);
-                else list.Add(seg.GetValue<string>());
+                else list.Add(seg.GetValueKind() == JsonValueKind.String ? seg.GetValue<string>() : seg.ToString());
             }
             return list;
         }

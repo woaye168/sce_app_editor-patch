@@ -391,7 +391,7 @@ public sealed class McpServer
         var body = await ReadBodyAsync(ctx).ConfigureAwait(false);
         var root = JsonNode.Parse(body) as JsonObject;
         var id = root?["id"];
-        var method = root?["method"]?.GetValue<string>();
+        var method = JsonRead.Str(root, "method");
         if (root == null || method == null)
         {
             await WriteJsonAsync(ctx, 400, JsonOut.Stringify(new JsonObject { ["id"] = null, ["error"] = "bad request" })).ConfigureAwait(false);
@@ -437,7 +437,7 @@ public sealed class McpServer
         var body = await ReadBodyAsync(ctx).ConfigureAwait(false);
         var root = JsonNode.Parse(body) as JsonObject;
         var id = root?["id"];
-        var method = root?["method"]?.GetValue<string>();
+        var method = JsonRead.Str(root, "method");
         if (root == null || method == null)
         {
             await WriteJsonAsync(ctx, 400, McpError(null, -32600, "Invalid Request")).ConfigureAwait(false);
@@ -475,7 +475,7 @@ public sealed class McpServer
             case "tools/call":
             {
                 var p = root["params"] as JsonObject;
-                var name = p?["name"]?.GetValue<string>();
+                var name = JsonRead.Str(p, "name");
                 var args = p?["arguments"] as JsonObject;
                 if (name == null || !IsMetaTool(name))
                 {
@@ -589,7 +589,7 @@ public sealed class McpServer
                     return await ViaLuaAsync("get_status", null).ConfigureAwait(false);
                 case "set_suppress":
                 {
-                    bool enabled = p?["enabled"]?.GetValue<bool>() ?? false;
+                    bool enabled = JsonRead.Bool(p, "enabled", false);
                     return await ViaLuaAsync("set_suppress", new { enabled }).ConfigureAwait(false);
                 }
                 case "start_debug":
@@ -636,8 +636,7 @@ public sealed class McpServer
                 }
                 case "get_events":
                 {
-                    long since = 0;
-                    try { since = p?["since"]?.GetValue<long>() ?? 0; } catch { }
+                    long since = JsonRead.Long(p, "since", 0);
                     var (events, latest) = _events.GetSince(since);
                     var arr = new JsonArray();
                     foreach (var e in events)

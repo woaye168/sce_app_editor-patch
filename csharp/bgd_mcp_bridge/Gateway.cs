@@ -28,7 +28,7 @@ public sealed class Gateway
 
     public OpResult Search(JsonObject? p)
     {
-        var query = p?["query"]?.GetValue<string>();
+        var query = JsonRead.Str(p, "query");
         if (string.IsNullOrWhiteSpace(query))
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: query",
@@ -43,8 +43,7 @@ public sealed class Gateway
                     ["required"] = new JsonArray("query"),
                 });
         }
-        int limit = 5;
-        try { limit = p?["limit"]?.GetValue<int>() ?? 5; } catch { }
+        int limit = JsonRead.Int(p, "limit", 5);
         var (total, results) = _catalog.Search(query, limit);
         var arr = new JsonArray();
         foreach (var (entry, _) in results)
@@ -74,7 +73,7 @@ public sealed class Gateway
 
     public OpResult Describe(JsonObject? p)
     {
-        var id = p?["id"]?.GetValue<string>();
+        var id = JsonRead.Str(p, "id");
         if (string.IsNullOrEmpty(id))
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: id");
@@ -127,14 +126,13 @@ public sealed class Gateway
 
     public async Task<OpResult> InvokeAsync(JsonObject? p)
     {
-        var id = p?["id"]?.GetValue<string>();
+        var id = JsonRead.Str(p, "id");
         if (string.IsNullOrEmpty(id))
         {
             return OpResult.Fail("PARAM_INVALID", "Missing required argument: id", "提供能力 id（search_capabilities 返回的）");
         }
         var args = p?["args"] as JsonObject;
-        int timeoutMs = UiThreadInvoker.DefaultTimeoutMs;
-        try { timeoutMs = p?["timeout_ms"]?.GetValue<int>() ?? timeoutMs; } catch { }
+        int timeoutMs = JsonRead.Int(p, "timeout_ms", UiThreadInvoker.DefaultTimeoutMs);
 
         var entry = _catalog.Find(id);
         if (entry == null)

@@ -84,7 +84,7 @@ sce_app_editor-patch/
 - 模块声明 `default_enabled`：内核补丁**首次创建**补丁目录时自动启用（用户手动关闭后重新应用不会强开；编辑器升级换版本目录后按全新处理会再启用默认）。
 - 模块按 `pkg` 归属库，UI 按库分组罗列；该库内核未应用时勾选禁用。
 - 新增模块：`patches/<pkg>/<id>/` 放 lua + `builtin_modules()` 注册。
-- 现有模块：script/`hello`（示例）、script/`unwatch`（解除项目文件监听）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；用官方事件桥 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)` 注册，不在入口模块 require menu_bar——详见库知识库 hooks.md）。
+- 现有模块：script/`hello`（示例）、xdeditor/`unwatch`（解除项目文件监听，勾选时应用注入 `_project_root.lua`——项目目录监听器在 xdeditor 进程 file_monitor_window.lua，script 包拦截不到）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；用官方事件桥 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)` 注册，不在入口模块 require menu_bar——详见库知识库 hooks.md）。
 
 ### 备份与日志（backup.rs / log.rs）
 

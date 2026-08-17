@@ -19,7 +19,7 @@ description: "为星火编辑器补丁应用（sce_app_editor-patch）开发 pat
    - **防御式访问**：编辑器 API 用 `pcall`/nil 判断包裹；失败经 `log`/`log_file`（判空）输出，绝不抛异常拖垮框架入口
    - 注册类补丁优先用官方**事件桥/回调**（如菜单用 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)`），不要在不当时机 require 未加载的模块
    - 需要延迟执行时挂官方事件（如 `EVENT.load_map_done`）再执行，同时立即尝试一次（已加载则立即生效）
-4. **注册模块**：`src/core/modules.rs` 的 `builtin_modules()` 加 `PatchModule { id, pkg, name, description, default_enabled, files }`；`files` 用 `include_str!("../../patches/<pkg>/<id>/main.lua")`；`default_enabled: true` 仅给必要补丁
+4. **注册模块**：`src/core/modules.rs` 的 `builtin_modules()` 加 `PatchModule { id, pkg, name, description, default_enabled, files, deploy_bridge_dll, inject_project_root }`；`files` 用 `include_str!("../../patches/<pkg>/<id>/main.lua")`；`default_enabled: true` 仅给必要补丁；`inject_project_root: true` 表示勾选时应用把当前项目根写入模块目录 `_project_root.lua`（模块内 `require('sce_app_editor-patch.<id>._project_root')` 取用）
 5. **验证**：`cargo test` 全过 → `cargo build --release`
 6. **文档同步**：AGENTS.md「现有模块」+ README 功能列表，同次提交
 7. **发版**：`git tag v0.x.y && git push origin v0.x.y`（CI 出包）→ bump `d:/sce_online/Res/maps/bgd_sce_plugins/registry.json` 的 `version`/`tag` 并推送
@@ -27,7 +27,7 @@ description: "为星火编辑器补丁应用（sce_app_editor-patch）开发 pat
 ## 现有模块参考
 
 - `patches/xdeditor/menu_bgd/`：**菜单注册标准范例**（事件桥 + load_map_done 延迟 + 防御判空）
-- `patches/script/unwatch/`：io 函数包装范例（解锁后 io.add_watch/remove_watch 恢复可用）
+- `patches/xdeditor/unwatch/`：io 函数包装 + `inject_project_root` 项目根注入范例（应用勾选时写 `_project_root.lua`）
 - `patches/script/hello/`：最小模块骨架
 
 ## 关键背景（速查，细节以库知识库为准）

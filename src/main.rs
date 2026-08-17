@@ -587,6 +587,7 @@ impl EditorPatchApp {
             let Some(lib) = kernel::LIBS.iter().find(|l| l.pkg == m.pkg) else {
                 return;
             };
+            let project_root = self.project_root.clone();
             let result = lib
                 .require_root_dir(target)
                 .and_then(|root| {
@@ -603,7 +604,7 @@ impl EditorPatchApp {
                     } else {
                         None
                     };
-                    modules::set_module(&root, m, on, version_dir.as_deref())
+                    modules::set_module(&root, m, on, version_dir.as_deref(), project_root.as_deref())
                 });
             match result {
                 Ok(()) => {

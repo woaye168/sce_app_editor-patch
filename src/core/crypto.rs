@@ -41,16 +41,13 @@ fn xor(data: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-/// 读取 lua 文件为文本：加密的解密，明文的原样读取
+/// 读取 lua 文件为文本：加密的解密，明文的原样读取。
+/// 仅用于状态检查的 ASCII 标记搜索，故用 `from_utf8_lossy` 容忍 GBK 编码的官方源码
+/// （严格 UTF-8 校验会让含中文的 GBK 入口误判为「缺失」）。
 pub fn read_lua(path: &Path) -> Result<String, String> {
     let raw = fs::read(path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
-    if is_encrypted(&raw) {
-        let plain = decrypt(&raw)?;
-        String::from_utf8(plain)
-            .map_err(|e| format!("{} 解密后不是有效 UTF-8: {e}", path.display()))
-    } else {
-        String::from_utf8(raw).map_err(|e| format!("{} 不是有效 UTF-8: {e}", path.display()))
-    }
+    let plain = if is_encrypted(&raw) { decrypt(&raw)? } else { raw };
+    Ok(String::from_utf8_lossy(&plain).into_owned())
 }
 
 /// 原子写：先写同目录临时文件，再替换目标

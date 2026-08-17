@@ -322,7 +322,7 @@ fn apply_lib(
         modules::regenerate_entry(&root)?;
         parts.push("保留已启用模块".to_string());
     } else {
-        let defaults = modules::apply_defaults(&root)?;
+        let defaults = modules::apply_defaults(&root, lib.pkg)?;
         if defaults.is_empty() {
             parts.push("补丁目录已创建".to_string());
         } else {

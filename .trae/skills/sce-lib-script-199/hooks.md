@@ -14,9 +14,9 @@
 
 ## 3. 解除项目文件监听（unwatch 模块）
 
-- 原理：StateGame 下 `io.add_watch/remove_watch` 被置 nil（isolation.lua:199-200）；解锁后可用
-- 做法：`io.get_user_data_path()` 得项目目录 → `pcall(io.remove_watch, root)` 移除 + 包装 `io.add_watch` 拦截项目路径前缀的后续挂载
-- 模块：`patches/script/unwatch/`
+- **已迁移到 xdeditor 包**（0.5.x）：项目目录监听器是 xdeditor 进程 `window/file_monitor_window.lua` 挂的（`io.add_watch(map_path, true, false)`，地图加载/on_map_path_changed 时），script 包侧包装拦截不到；且 script 包拿不到可靠项目路径。
+- 现做法（`patches/xdeditor/unwatch/`）：应用在勾选时注入 `_project_root.lua`（当前项目根）→ 模块移除既有监听 + 包装 `io.add_watch` 拦截项目根前缀的后续挂载。
+- 历史做法（script 包，`io.get_user_data_path` 推导 + StateGame 下 `io.add_watch/remove_watch` 被 isolation.lua:199-200 置 nil 需先解锁）已废弃。
 
 ## 4. 覆盖 C++ 全局函数范本
 

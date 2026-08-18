@@ -9,17 +9,23 @@
     4. 从同目录 main.lua 的 modules 表中移除 'bgd_bridge_test' 条目
 .EXAMPLE
     ./tools/cleanup_smoke.ps1 -WhatIf   # 预演，只打印将执行的操作
-    ./tools/cleanup_smoke.ps1           # 实际执行
+    ./tools/cleanup_smoke.ps1           # 实际执行（默认本机路径）
+    ./tools/cleanup_smoke.ps1 -EngineRoot D:/sce_online -ApiVersion 13 -XdVersion 160
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
-param()
+param(
+    # 引擎运行根（version-<api> 与 Update/ 的上级），默认环境变量 SCE_ENGINE_ROOT，再默认本机路径
+    [string]$EngineRoot = $(if ($env:SCE_ENGINE_ROOT) { $env:SCE_ENGINE_ROOT } else { 'D:/sce_online' }),
+    [string]$ApiVersion = '13',
+    [string]$XdVersion = '160'
+)
 
 $ErrorActionPreference = 'Stop'
 
-$hostDir      = 'D:/sce_online/version-13'
+$hostDir      = "$EngineRoot/version-$ApiVersion"
 $bridgeDll    = "$hostDir/BgdBridge.dll"
 $depsJson     = "$hostDir/sce.deps.json"
-$patchRoot    = 'D:/sce_online/Update/editor-pd.spark.xd.com/Res/_m/xdeditor/160/xdeditor/sce_app_editor-patch'
+$patchRoot    = "$EngineRoot/Update/editor-pd.spark.xd.com/Res/_m/xdeditor/$XdVersion/xdeditor/sce_app_editor-patch"
 $moduleDir    = "$patchRoot/bgd_bridge_test"
 $mainLua      = "$patchRoot/main.lua"
 $depsKey      = 'BgdBridge/1.0.0'

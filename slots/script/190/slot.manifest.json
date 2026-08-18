@@ -1,0 +1,14 @@
+{
+  "files": {
+    "common/init.lua": {
+      "kind": "slot",
+      "source_sha256": "454b121dd4494a5f6f6e7b7493b281222dc4e24c0868ae968e894bedd96096b2"
+    },
+    "common/isolation.lua": {
+      "kind": "unlock",
+      "source_sha256": "e04678e871f5b29075dcd5e2ed1aa620610773b93d996ba12f8636ebfe0e0c89"
+    }
+  },
+  "pkg": "script",
+  "version": 190
+}

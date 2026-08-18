@@ -12,7 +12,7 @@
 //! 「状态检查」：插槽标记（+script 库解锁标记）是否在，编辑器升级覆盖后显示「未应用」。
 
 use super::locate::EditorTarget;
-use super::{backup, bridge_deploy, crypto, locate, log, modules, ops};
+use super::{backup, bridge_deploy, crypto, locate, log, modules, ops, slot_inject};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -80,6 +80,31 @@ pub enum LibStatus {
     Missing,
 }
 
+/// 插槽可用级别（0.5.3 F4 三级回退）
+#[derive(PartialEq, Clone, Copy, Debug)]
+pub enum SlotLevel {
+    /// 精确版本插槽：slots/<pkg>/<版本>/ 存在，整树字节复制
+    Exact,
+    /// 可复用：最近低版本插槽的官方源哈希与新版本一致，直接复用
+    Reusable(u64),
+    /// 可运行时注入：无精确/可复用插槽，应用时对新版本源现场注入
+    Injectable,
+    /// 入口文件缺失，无法注入
+    Missing,
+}
+
+impl SlotLevel {
+    /// UI 展示文案（仅在未应用状态下提示用）
+    pub fn hint(&self) -> String {
+        match self {
+            SlotLevel::Exact => String::new(),
+            SlotLevel::Reusable(v) => format!("（无本版本精确插槽，可复用 v{v}）"),
+            SlotLevel::Injectable => "（无精确插槽，将运行时注入）".to_string(),
+            SlotLevel::Missing => "（入口缺失，无法应用插槽）".to_string(),
+        }
+    }
+}
+
 /// 单个库的完整状态（供 UI 展示）
 pub struct LibStatusInfo {
     pub pkg: &'static str,
@@ -87,9 +112,45 @@ pub struct LibStatusInfo {
     pub version: String,
     pub status: LibStatus,
     pub has_backup: bool,
-    /// slots 目录是否有该版本的插槽文件
-    pub has_slots: bool,
+    /// 插槽可用级别（三级回退判定）
+    pub slot_level: SlotLevel,
     pub path: String,
+}
+
+/// 判定库的插槽可用级别（三级回退，供状态展示与应用流程共用）
+fn slot_level(lib: &LibSpec, target: &EditorTarget, version: u64) -> SlotLevel {
+    if slots::has_slots(lib.pkg, version) {
+        return SlotLevel::Exact;
+    }
+    let Ok(pkg_dir) = lib.package_dir(target) else {
+        return SlotLevel::Missing;
+    };
+    if !pkg_dir.join(lib.entry).is_file() {
+        return SlotLevel::Missing;
+    }
+    if let Some(v) = find_reusable_version(lib.pkg, &pkg_dir, version) {
+        return SlotLevel::Reusable(v);
+    }
+    SlotLevel::Injectable
+}
+
+/// 找可复用的最近低版本：带 manifest 且其记录的官方源哈希与新版本解码源全部一致
+fn find_reusable_version(pkg: &str, pkg_dir: &Path, current: u64) -> Option<u64> {
+    for v in slots::versions_below(pkg, current) {
+        let Some(manifest) = slots::manifest(pkg, v) else {
+            continue;
+        };
+        let all_match = manifest.files.iter().all(|(rel, f)| {
+            let Ok(raw) = std::fs::read(pkg_dir.join(rel)) else {
+                return false;
+            };
+            slot_inject::source_hash(&slot_inject::decode_source(&raw)) == f.source_sha256
+        });
+        if all_match {
+            return Some(v);
+        }
+    }
+    None
 }
 
 /// 检查全部目标库状态
@@ -102,9 +163,9 @@ pub fn check(target: &EditorTarget) -> Vec<LibStatusInfo> {
                 .backup_group(target)
                 .map(|g| backup::has_backup(&target.editor_root, &g))
                 .unwrap_or(false);
-            let has_slots = version
-                .map(|v| slots::has_slots(lib.pkg, v))
-                .unwrap_or(false);
+            let level = version
+                .map(|v| slot_level(lib, target, v))
+                .unwrap_or(SlotLevel::Missing);
             let (path, status) = match lib.entry_path(target) {
                 Ok(entry) => {
                     // read_lua 自适应加密/明文：未打补丁的加密入口也能正确读出
@@ -136,7 +197,7 @@ pub fn check(target: &EditorTarget) -> Vec<LibStatusInfo> {
                 version: version_str,
                 status,
                 has_backup,
-                has_slots,
+                slot_level: level,
                 path,
             }
         })
@@ -246,10 +307,11 @@ fn apply_all(project_root: &Path, progress: &SharedProgress) -> Result<String, S
     set_total(progress, total);
     let done = progress.lock().unwrap().done.clone();
 
+    let version_dir = target.version_dir();
     let mut lines = pre_errors;
     let mut ok_count = 0;
     for job in &jobs {
-        match apply_lib(&target, job, progress, &done) {
+        match apply_lib(&target, job, progress, &done, project_root, &version_dir) {
             Ok(msg) => {
                 ok_count += 1;
                 lines.push(format!("✔ {}：{msg}", job.lib.name));
@@ -269,12 +331,14 @@ fn apply_all(project_root: &Path, progress: &SharedProgress) -> Result<String, S
     Ok(lines.join("\n"))
 }
 
-/// 处理单个库：备份 → 整库解密 → 应用插槽文件 → 补丁目录/默认模块
+/// 处理单个库：备份 → 整库解密 → 应用插槽（三级回退）→ 补丁目录/默认模块
 fn apply_lib(
     target: &EditorTarget,
     job: &Job,
     progress: &SharedProgress,
     done: &Arc<AtomicUsize>,
+    project_root: &Path,
+    version_dir: &Path,
 ) -> Result<String, String> {
     let lib = job.lib;
     let mut parts: Vec<String> = Vec::new();
@@ -307,13 +371,20 @@ fn apply_lib(
     }
     parts.push(format!("解密 {} 个文件", decrypted.load(Ordering::Relaxed)));
 
-    // 3. 应用插槽文件（整树字节级覆盖，不做编解码）
+    // 3. 应用插槽（0.5.3 F4 三级回退：精确复制 → 同内容复用 → 运行时注入）
+    set_phase(progress, format!("写入 {} 库插槽…", lib.pkg));
     if job.has_slots {
-        set_phase(progress, format!("写入 {} 库插槽…", lib.pkg));
         let n = slots::apply_slots(lib.pkg, job.version, &job.dir)?;
         parts.push(format!("插槽文件 {n} 个"));
+    } else if let Some(v) = find_reusable_version(lib.pkg, &job.dir, job.version) {
+        let n = slots::apply_slots(lib.pkg, v, &job.dir)?;
+        parts.push(format!("插槽复用自 v{v}（官方源内容一致，{n} 个文件）"));
     } else {
-        parts.push(format!("无 v{} 插槽（跳过）", job.version));
+        let n = runtime_inject_slots(lib, &job.dir, job.version)?;
+        parts.push(format!(
+            "运行时注入插槽 {n} 个文件（建议重跑 make_slots 固化 v{} slots）",
+            job.version
+        ));
     }
 
     // 4. 补丁目录：首次创建启用默认模块，否则按现状重建入口
@@ -322,15 +393,63 @@ fn apply_lib(
         modules::regenerate_entry(&root)?;
         parts.push("保留已启用模块".to_string());
     } else {
-        let defaults = modules::apply_defaults(&root, lib.pkg)?;
+        let (defaults, warnings) = modules::apply_defaults(
+            &root,
+            lib.pkg,
+            Some(version_dir),
+            Some(project_root),
+        )?;
         if defaults.is_empty() {
             parts.push("补丁目录已创建".to_string());
         } else {
             parts.push(format!("默认启用模块: {}", defaults.join(", ")));
         }
+        parts.extend(warnings);
     }
 
     Ok(parts.join("，"))
+}
+
+/// 三级回退第 3 级：运行时模式注入（对新版本解码源现场执行插槽/解锁变换）。
+/// 注入后校验标记在位；锚点匹配失败明确报错提示重跑 make_slots 人工固化。
+/// 返回注入文件数。
+fn runtime_inject_slots(lib: &LibSpec, pkg_dir: &Path, version: u64) -> Result<usize, String> {
+    let fail = |reason: &str| {
+        format!(
+            "{} v{version} 源码结构变化，自动注入失败（{reason}），请重跑 make_slots 人工固化 slots",
+            lib.pkg
+        )
+    };
+    let mut count = 0;
+
+    // 入口插槽：顶层 return 之前注入插槽块（先剥离旧插槽，幂等）
+    let entry = pkg_dir.join(lib.entry);
+    let raw = std::fs::read(&entry).map_err(|e| fail(&format!("读取入口失败: {e}")))?;
+    let text = slot_inject::strip_slot(&slot_inject::decode_source(&raw));
+    let injected = slot_inject::insert_slot(&text, &slot_inject::slot_block());
+    if !injected.contains(slot_inject::INJECT_BEGIN) {
+        return Err(fail("插槽块注入后标记缺失"));
+    }
+    if injected == text {
+        return Err(fail("入口注入未产生变化"));
+    }
+    crypto::write_atomic(&entry, injected.as_bytes()).map_err(|e| fail(&format!("写入入口失败: {e}")))?;
+    count += 1;
+
+    // script 库追加 isolation.lua 解锁变换
+    if lib.pkg == "script" {
+        let iso = pkg_dir.join("common/isolation.lua");
+        let raw = std::fs::read(&iso).map_err(|e| fail(&format!("读取 isolation.lua 失败: {e}")))?;
+        let text = slot_inject::strip_unlock(&slot_inject::decode_source(&raw));
+        let (out, n) = slot_inject::transform_unlock(&text);
+        if n == 0 || !out.contains(slot_inject::UNLOCK_MARK) {
+            return Err(fail("isolation.lua 未找到可解锁行"));
+        }
+        crypto::write_atomic(&iso, out.as_bytes()).map_err(|e| fail(&format!("写入 isolation.lua 失败: {e}")))?;
+        count += 1;
+    }
+
+    Ok(count)
 }
 
 // ---------------------------------------------------------------- 还原
@@ -429,9 +548,31 @@ fn restore_all(project_root: &Path, progress: &SharedProgress) -> Result<String,
 
 mod slots {
     use include_dir::{include_dir, Dir};
+    use serde::Deserialize;
+    use std::collections::BTreeMap;
     use std::path::Path;
 
     static SLOTS: Dir = include_dir!("$CARGO_MANIFEST_DIR/slots");
+
+    /// manifest 文件名（make_slots 生成，记录每个插槽文件的官方源哈希，复用判定用）
+    pub const MANIFEST_NAME: &str = "slot.manifest.json";
+
+    /// 插槽清单：slots/<pkg>/<ver>/slot.manifest.json
+    #[derive(Deserialize)]
+    pub struct SlotManifest {
+        /// rel路径 → 条目
+        pub files: BTreeMap<String, ManifestFile>,
+    }
+
+    #[derive(Deserialize)]
+    pub struct ManifestFile {
+        /// slot=入口插槽注入 / unlock=解锁转换（保留字段，供排查/未来按类型差异化处理）
+        #[serde(default)]
+        #[allow(dead_code)]
+        pub kind: String,
+        /// 该插槽文件派生自的官方源文本哈希（解码+GBK→UTF-8 后）
+        pub source_sha256: String,
+    }
 
     /// 定位 slots/<pkg>/<version> 子目录。
     /// include_dir 的 Dir::get_dir 只做单层名称匹配，嵌套子目录（如 script/199/common）
@@ -449,7 +590,42 @@ mod slots {
         slot_dir(pkg, version).is_some()
     }
 
-    /// 把 slots/<pkg>/<version>/ 整树覆盖写入包目录，返回写入文件数
+    /// 该库所有带插槽的版本中，低于 current 的版本号列表（降序，复用判定从最近低版本开始）
+    pub fn versions_below(pkg: &str, current: u64) -> Vec<u64> {
+        let mut vers: Vec<u64> = SLOTS
+            .dirs()
+            .find(|d| d.path().file_name().map(|n| n == pkg).unwrap_or(false))
+            .map(|pkg_dir| {
+                pkg_dir
+                    .dirs()
+                    .filter_map(|d| {
+                        d.path()
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .filter(|v| *v < current)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        vers.sort_unstable_by(|a, b| b.cmp(a));
+        vers
+    }
+
+    /// 读取指定版本的插槽清单（无 manifest 的老版本 slots 返回 None，复用判定跳过）
+    pub fn manifest(pkg: &str, version: u64) -> Option<SlotManifest> {
+        let dir = slot_dir(pkg, version)?;
+        let file = dir.files().find(|f| {
+            f.path()
+                .file_name()
+                .map(|n| n == MANIFEST_NAME)
+                .unwrap_or(false)
+        })?;
+        let text = std::str::from_utf8(file.contents()).ok()?;
+        serde_json::from_str(text).ok()
+    }
+
+    /// 把 slots/<pkg>/<version>/ 整树覆盖写入包目录（manifest 文件本身不落地），返回写入文件数
     pub fn apply_slots(pkg: &str, version: u64, pkg_dir: &Path) -> Result<usize, String> {
         let dir = slot_dir(pkg, version)
             .ok_or_else(|| format!("无 {pkg} v{version} 的插槽文件"))?;
@@ -461,6 +637,10 @@ mod slots {
     /// file.path() 相对 slots 根（含 <pkg>/<version>/ 前缀），写入时剥掉前缀
     fn write_dir(dir: &Dir, dest: &Path, count: &mut usize) -> Result<(), String> {
         for file in dir.files() {
+            // manifest 是元数据，不写入包目录
+            if file.path().file_name().map(|n| n == MANIFEST_NAME).unwrap_or(false) {
+                continue;
+            }
             let rel = file.path();
             // 剥掉前两层（pkg/version）
             let rel = rel.iter().skip(2).collect::<std::path::PathBuf>();
@@ -482,17 +662,100 @@ mod slots {
 mod tests {
     use super::*;
 
+    /// 序列化使用进程级环境变量（EDITOR_PATCH_BACKUP_DIR）的端到端测试，防并发互踩
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_slots_embedded() {
-        // 编译期内嵌的 slots 文件可用（当前版本 199/160 必须存在）
+        // 编译期内嵌的 slots 文件可用（当前版本 199/169 必须存在）
         assert!(slots::has_slots("script", 199));
         assert!(slots::has_slots("xdeditor", 160));
+        assert!(slots::has_slots("xdeditor", 169));
         assert!(!slots::has_slots("script", 999));
+        // 复用判定的版本枚举：xdeditor 低于 169 的最近版本是 160
+        let below = slots::versions_below("xdeditor", 169);
+        assert!(below.first() == Some(&160), "{below:?}");
+    }
+
+    /// 三级回退第 3 级：无精确插槽（也无 manifest 可复用）时运行时注入
+    #[test]
+    fn test_runtime_inject_fallback() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let base = std::env::temp_dir().join(format!("editor_patch_inject_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let backup_dir = base.join("backup");
+        std::env::set_var("EDITOR_PATCH_BACKUP_DIR", &backup_dir);
+
+        // 项目结构（script 包指向无插槽的 v999）
+        let project = base.join("project_x");
+        std::fs::create_dir_all(project.join("project")).unwrap();
+        std::fs::create_dir_all(project.join("script")).unwrap();
+        std::fs::write(
+            project.join("project").join("map_settings.json"),
+            r#"{"api_version": {"api_version": 13}}"#,
+        )
+        .unwrap();
+        let editor_root = base.join("editor");
+        std::fs::write(
+            project.join("script").join("tsconfig.json"),
+            format!(
+                r#"{{"compilerOptions": {{"typeRoots": ["{}"]}}}}"#,
+                editor_root.display().to_string().replace('\\', "/")
+                    + "/Res/_m/maps/global_default/53/global_default/script/"
+            ),
+        )
+        .unwrap();
+        std::fs::create_dir_all(&editor_root).unwrap();
+        std::fs::write(
+            editor_root.join("api_pak_version.json"),
+            r##"{"#package_path": {"script": "Res/_m/script"},
+                "13": {"script": 999}}"##,
+        )
+        .unwrap();
+
+        // script 包 v999：加密入口（含顶层 return）+ 加密 isolation（含禁用行）
+        let common = editor_root.join("Res/_m/script/999/script/common");
+        std::fs::create_dir_all(&common).unwrap();
+        let init = common.join("init.lua");
+        std::fs::write(
+            &init,
+            crypto::encrypt(b"local M = {}\nfunction M.x() end\n\nreturn M\n"),
+        )
+        .unwrap();
+        let iso = common.join("isolation.lua");
+        std::fs::write(&iso, crypto::encrypt(b"os.exit = nil\nio.open = nil\n")).unwrap();
+
+        // 应用：v999 无插槽 → 运行时注入路径
+        let progress = new_progress();
+        let msg = apply_all(&project, &progress).unwrap();
+        assert!(msg.contains("运行时注入插槽"), "{msg}");
+
+        // 注入结果校验：入口含插槽标记且 return 保留、isolation 含解锁标记，均为明文
+        let init_text = std::fs::read_to_string(&init).unwrap();
+        assert!(init_text.contains(INJECT_MARK));
+        assert!(init_text.contains("return M"));
+        let iso_text = std::fs::read_to_string(&iso).unwrap();
+        assert!(iso_text.contains(UNLOCK_MARK));
+
+        // 状态检查：已应用
+        let target = locate::locate(&project).unwrap();
+        let statuses = check(&target);
+        let s = statuses.iter().find(|s| s.pkg == "script").unwrap();
+        assert_eq!(s.status, LibStatus::Applied);
+
+        // 还原：回到加密原始字节
+        let progress2 = new_progress();
+        restore_all(&project, &progress2).unwrap();
+        let raw = std::fs::read(&init).unwrap();
+        assert!(raw.starts_with(b"TNND"));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// 端到端：临时目录双库（加密+明文混合）整库流程
     #[test]
     fn test_apply_restore_flow() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let base = std::env::temp_dir().join(format!("editor_patch_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let backup_dir = base.join("backup");

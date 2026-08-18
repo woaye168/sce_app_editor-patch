@@ -46,12 +46,10 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      # C# 桥接程序集（bgd_mcp_bridge）：引用程序集用仓库 ci/refs/ 副本（宿主 version-13 自带 dll）
-      - name: Build bgd_mcp_bridge (.NET)
-        run: dotnet build csharp/bgd_mcp_bridge -c Release -p:Platform=x64 -p:SceHostDir=ci/refs
-
       # 版本号唯一来源是 git tag：构建前把 tag 版本注入 Cargo.toml
       # 源码中的 version 固定为 0.0.0-dev 占位，无需手工同步
+      #（必须在 dotnet build 之前：bgd_mcp_bridge.dll 的 -p:Version 也用同一版本，
+      #  Rust 侧 env!("CARGO_PKG_VERSION") 生成 sce.deps.json 登记键，二者必须一致）
       - name: Inject version from tag
         shell: pwsh
         run: |
@@ -61,6 +59,13 @@ jobs:
           $cargo = $cargo -replace '(?m)^version = "[^"]*"', "version = `"$ver`""
           Set-Content Cargo.toml $cargo -NoNewline -Encoding utf8
           Write-Output "已写入 Cargo.toml"
+          "ver=$ver" | Out-File $env:GITHUB_OUTPUT -Append
+        id: ver
+
+      # C# 桥接程序集（bgd_mcp_bridge）：引用程序集用仓库 ci/refs/ 副本（宿主 version-13 自带 dll）
+      # -p:Version 注入 tag 版本（csproj 占位 0.0.0-dev），dll 版本跟随插件版本
+      - name: Build bgd_mcp_bridge (.NET)
+        run: dotnet build csharp/bgd_mcp_bridge -c Release -p:Platform=x64 -p:SceHostDir=ci/refs -p:Version=${{ steps.ver.outputs.ver }}
 
       # 不用 --locked：上一步注入了版本号到 Cargo.toml，Cargo.lock 需同步更新
       - name: Build release

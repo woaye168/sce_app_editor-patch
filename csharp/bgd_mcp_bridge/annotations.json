@@ -69,6 +69,22 @@
       "tags": ["lua", "逃生舱"],
       "risk": "danger"
     },
+    "lua.publish_project": {
+      "description": "发布项目到创作者中心（EDITOR.upload_map promise 通道，先保存地图；分钟级耗时，调用方需放大 timeout_ms 如 600000）",
+      "aliases": ["publish_project", "发布项目", "上传项目", "publish"],
+      "tags": ["发布", "上传"],
+      "risk": "danger",
+      "precondition": "地图已打开",
+      "example": "{\"id\":\"lua.publish_project\",\"timeout_ms\":600000}"
+    },
+    "lua.capture_game": {
+      "description": "截取调试中游戏画面（PIE 视口引擎快照，返回 png 路径/宽/高；需调试进行中）",
+      "aliases": ["capture_game", "截图", "游戏截图", "screenshot"],
+      "tags": ["截图", "调试", "画面"],
+      "risk": "read",
+      "precondition": "调试进行中（GamePlayInEditor 槽位存在）",
+      "example": "{\"id\":\"lua.capture_game\",\"args\":{\"path\":\"D:/tmp/cap.png\"}}"
+    },
     "sys.server_info": {
       "description": "服务自身信息（版本/端口/目录规模/漂移状态）",
       "aliases": ["server_info"],

@@ -15,12 +15,13 @@ local function logi(m)
 end
 
 -- ===== 基础对象（全部防御式获取） =====
-local SCE, MainFrame, eventMgr, pluginMgr
+local SCE, MainFrame, eventMgr, pluginMgr, sceneMgr
 pcall(function()
     SCE = ImportSCEContext()
     MainFrame = GetMainFrame()
     eventMgr = SCE.GetEventManager()
     pluginMgr = SCE.GetPluginsManager()
+    sceneMgr = SCE.GetSceneManager()
 end)
 if not SCE then
     logi('ImportSCEContext 失败，模块仅完成加载')
@@ -297,6 +298,83 @@ handlers.set_suppress = function(params)
     return { suppress = suppress_enabled }
 end
 
+-- ===== 0.5.3 场景一：发布项目 / 游戏画面截取 =====
+
+-- 延迟 ack 约定：handler 返回 DEFERRED 时不立即 ack，
+-- 由 handler 在异步回调里自行 send_ack（C# 侧按 id 配对等待，超时由调用方 timeout_ms 控制）
+local DEFERRED = { __deferred = true }
+
+-- 发布项目（R1 定稿：EDITOR.upload_map 官方 promise 结果通道，doc/research/publish-and-capture.md）
+-- 绕开菜单 handler 的确认弹窗（弹窗在菜单层，upload_map 本身无交互）；与菜单行为一致先保存地图。
+-- log_mark='bgd_mcp' 让官方流程输出结构化日志（[bgd_mcp]发布地图[...]成功/失败）作兜底感知。
+handlers.publish_project = function(params, id)
+    if not (EDITOR and EDITOR.upload_map) then
+        error('EDITOR.upload_map 不可用（xdeditor 未就绪）')
+    end
+    local map_path
+    pcall(function()
+        map_path = MainFrame and MainFrame:GetMapPath()
+    end)
+    if not map_path or map_path == '' then
+        error('地图未打开：请先在编辑器中打开项目/地图，再发布')
+    end
+    coroutine.wrap(function()
+        local ok, err = xpcall(function()
+            local promise = base.promise()
+            EDITOR.upload_map('bgd_mcp', promise)
+            local ret = promise:co_result()
+            logi('发布项目完成：code=' .. tostring(ret))
+            send_event({ type = 'publish_done', ok = ret == 0, code = ret })
+            send_ack(id, true, { ok = ret == 0, code = ret })
+        end, debug.traceback)
+        if not ok then
+            logi('发布项目异常：' .. tostring(err))
+            send_event({ type = 'publish_done', ok = false, error = tostring(err) })
+            send_ack(id, false, err)
+        end
+    end)()
+    return DEFERRED
+end
+
+-- 截取游戏画面（R2 定稿：引擎原生 snapshot_scene_callback，PIE 截图按钮官方实现）
+-- params.path：png 落盘绝对路径（缺省 <用户目录>/screenShot/bgd_capture_<时间戳>.png）
+handlers.capture_game = function(params, id)
+    if not sceneMgr then
+        error('SceneManager 不可用')
+    end
+    local ui_name = 'GamePlayInEditor'
+    local debugging = false
+    pcall(function()
+        debugging = pluginMgr and pluginMgr:is_plugin_ui_loaded(ui_name)
+    end)
+    if not debugging then
+        error('游戏未在调试（GamePlayInEditor 槽位不存在），请先 start_debug')
+    end
+    local viewport = sceneMgr:get_ui_viewport(ui_name)
+    if not viewport then
+        error('游戏视口不可用（游戏未启动？）')
+    end
+    local w, h = viewport:get_inner_viewport_size()
+    local path = type(params) == 'table' and params.path or nil
+    if not path or path == '' then
+        local base_dir = MainFrame:GetUserPath() .. 'screenShot'
+        if not io.exist_dir(base_dir) then
+            io.create_dir(base_dir)
+        end
+        path = ('%s/bgd_capture_%s.png'):format(base_dir, os.date('%Y%m%d_%H%M%S'))
+    end
+    sceneMgr:snapshot_scene_callback(ui_name, 0, 0, w, h, path, 1.0, nil, function(result)
+        if result and result > 0 then
+            logi('截图成功：' .. path)
+            send_ack(id, true, { path = path, width = w, height = h })
+        else
+            logi('截图失败：result=' .. tostring(result))
+            send_ack(id, false, 'snapshot_scene_callback 返回 ' .. tostring(result))
+        end
+    end)
+    return DEFERRED
+end
+
 if eventMgr then
     pcall(function()
         eventMgr:register_event('bgd_mcp_cmd', function(payload)
@@ -312,9 +390,12 @@ if eventMgr then
                 send_ack(id, false, '未知 method: ' .. tostring(req.method))
                 return
             end
-            local ok2, res = xpcall(handler, debug.traceback, req.params)
+            -- handler 第二个参数为请求 id：返回 DEFERRED 时由 handler 异步回调里自行 send_ack
+            local ok2, res = xpcall(handler, debug.traceback, req.params, id)
             if ok2 then
-                send_ack(id, true, res)
+                if res ~= DEFERRED then
+                    send_ack(id, true, res)
+                end
             else
                 logi(('method %s 执行失败：%s'):format(tostring(req.method), tostring(res)))
                 send_ack(id, false, res)

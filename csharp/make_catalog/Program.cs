@@ -5,8 +5,13 @@
 //            IServiceProvider 无运行时枚举 API，工厂/扩展注册的盲区靠运行期惰性校验兜住）
 //   cpp.* —— SCE.CppInterface 静态方法中「全基元/枚举参数 + 非 nint 返回」的条目
 //   datacore.* / lua.* / sys.* —— 手写静态条目（本文件 StaticEntries）
-// 用法：dotnet run --project csharp/make_catalog [-- <宿主目录> <api版本> <输出路径>]
-//   默认：<宿主目录>=D:/sce_online/version-13  <api版本>=13  <输出>=../bgd_mcp_bridge/catalog.json
+// 用法（0.5.3 起不再内置本机路径默认值，两种用法必传其一）：
+//   dotnet run --project csharp/make_catalog -- --project <项目根> [<输出路径>]
+//     从项目经 locate 链推导宿主目录（map_settings.json api_version + tsconfig.json
+//     typeRoots → 编辑器根 → 上两级运行根 → version-<api>）
+//   dotnet run --project csharp/make_catalog -- <宿主目录> <api版本> [<输出路径>]
+//     显式指定，如 D:/sce_online/version-13 13
+//   输出默认：../bgd_mcp_bridge/catalog.json
 // 编辑器升级后重跑本工具（make_slots 同款「版本更新后重跑」约定）。
 
 using System.Reflection;
@@ -15,9 +20,65 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-var hostDir = args.Length > 0 ? args[0] : "D:/sce_online/version-13";
-var apiVersion = args.Length > 1 ? args[1] : "13";
-var outPath = args.Length > 2 ? args[2] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "bgd_mcp_bridge", "catalog.json"));
+static string? DeriveHostDirFromProject(string projectRoot, out string? apiVersion)
+{
+    apiVersion = null;
+    // 1. map_settings.json → api_version（对象或数字两种形态）
+    var msPath = Path.Combine(projectRoot, "project", "map_settings.json");
+    if (!File.Exists(msPath)) return null;
+    var ms = JsonNode.Parse(File.ReadAllText(msPath)) as JsonObject;
+    var av = ms?["api_version"];
+    apiVersion = av is JsonObject o ? o["api_version"]?.ToString() : av?.ToString();
+    if (string.IsNullOrEmpty(apiVersion)) return null;
+
+    // 2. script/tsconfig.json → typeRoots 任意一条含 /Res/_m/ 的路径，前缀即编辑器根
+    var tsPath = Path.Combine(projectRoot, "script", "tsconfig.json");
+    if (!File.Exists(tsPath)) return null;
+    var tsText = File.ReadAllText(tsPath);
+    // typeRoots 值是 JSON 字符串，直接正则取含 /Res/_m/ 的字符串值前缀（兼容正反斜杠由调用方归一化）
+    var m = System.Text.RegularExpressions.Regex.Match(tsText.Replace('\\', '/'), @"""([^""]*?)/Res/_m/", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    if (!m.Success) return null;
+    var editorRoot = m.Groups[1].Value.Replace('\\', '/').TrimEnd('/');
+    if (string.IsNullOrEmpty(editorRoot)) return null;
+
+    // 3. 编辑器根上两级 = 运行根，hostDir = <运行根>/version-<api>
+    var engineRoot = Path.GetDirectoryName(Path.GetDirectoryName(editorRoot));
+    if (engineRoot == null) return null;
+    return Path.Combine(engineRoot, $"version-{apiVersion}");
+}
+
+string hostDir;
+string apiVersion;
+string outPath;
+if (args.Length >= 1 && args[0] == "--project")
+{
+    if (args.Length < 2)
+    {
+        Console.Error.WriteLine("用法: make_catalog --project <项目根> [<输出路径>]");
+        return 1;
+    }
+    var derived = DeriveHostDirFromProject(args[1], out var av);
+    if (derived == null || av == null)
+    {
+        Console.Error.WriteLine($"无法从项目推导宿主目录（检查 project/map_settings.json 与 script/tsconfig.json）: {args[1]}");
+        return 1;
+    }
+    hostDir = derived;
+    apiVersion = av;
+    outPath = args.Length > 2 ? args[2] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "bgd_mcp_bridge", "catalog.json"));
+    Console.WriteLine($"已从项目推导：hostDir={hostDir} api={apiVersion}");
+}
+else if (args.Length >= 2)
+{
+    hostDir = args[0];
+    apiVersion = args[1];
+    outPath = args.Length > 2 ? args[2] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "bgd_mcp_bridge", "catalog.json"));
+}
+else
+{
+    Console.Error.WriteLine("用法: make_catalog --project <项目根> [<输出路径>]  |  make_catalog <宿主目录> <api版本> [<输出路径>]");
+    return 1;
+}
 
 if (!Directory.Exists(hostDir))
 {
@@ -289,6 +350,10 @@ static class CatalogGenerator
             [Param("enabled", "bool", true, null, "弹窗抑制开关")]);
         yield return Entry("lua.run_lua", "lua", "run_lua", "object", "danger",
             [Param("code", "string", true, null, "任意 Lua 代码（pcall 执行，兜底逃生舱；默认 danger 需配置放行）")]);
+        yield return Entry("lua.publish_project", "lua", "publish_project", "object", "danger",
+            []);
+        yield return Entry("lua.capture_game", "lua", "capture_game", "object", "read",
+            [Param("path", "string", false, null, "png 落盘绝对路径（缺省自动生成到 用户目录/screenShot/）")]);
         yield return Entry("sys.server_info", "sys", "server_info", "object", "read", []);
     }
 

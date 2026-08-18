@@ -8,5 +8,6 @@ pub mod locate;
 pub mod log;
 pub mod modules;
 pub mod ops;
+pub mod slot_inject;
 
 pub use locate::{locate, EditorTarget};

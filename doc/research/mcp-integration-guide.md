@@ -3,7 +3,19 @@
 > 适用版本：sce_app_editor-patch ≥ 0.5.0（海量工具 MCP 架构：Gateway + 能力目录 + 元工具搜索）
 > 服务形态：星火编辑器进程内 HTTP 服务，默认地址 `http://127.0.0.1:39177`（配置端口不可用时自动向后避让，实际端口以 `<引擎运行根>/logs/bgd_csharp/port` 文件为准）
 
-启用条件：编辑器补丁应用中勾选「MCP 桥（外部 AI 控制）」→ 重启星火编辑器。服务随编辑器进程存亡（编辑器关闭则服务下线）。
+启用条件：编辑器补丁应用中勾选「MCP 桥（外部 AI 控制）」（0.5.3 起默认勾选）→ 重启星火编辑器。服务随编辑器进程存亡（编辑器关闭则服务下线）。
+
+## 0.5.3 起：AGENT 首选 bgd_sce_tools mcp 聚合入口
+
+场景一（代码开发调试链路）下，AI 客户端**只需配置一个 stdio MCP**：
+
+```json
+{ "mcpServers": { "bgd-sce": { "command": "bgd_sce_tools", "args": ["mcp"] } } }
+```
+
+聚合服务恒定 8 工具：`editor_start` / `editor_stop` / `get_logs`（编辑器外本地实现，离线可用）+
+`start_debug`（默认 restart_last_debug，失败自动回退全量）/ `stop_debug` / `publish_project` / `capture_game` / `get_status`（在线透传本桥，离线时明确报错引导 editor_start）。
+`project_path` 参数缺省取 bgd_sce_tools 最近项目。本指南下文为编辑器进程内桥的直接接入方式（场景二/自定义集成用）。
 
 ## 架构：固定元工具 + 可搜索能力目录
 

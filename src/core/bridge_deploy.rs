@@ -22,8 +22,27 @@ pub const BRIDGE_DLL: &[u8] = include_bytes!(concat!(
 
 /// deps.json targets 中的目标组名（.NET 9 / win-x64）
 const TARGET_GROUP: &str = ".NETCoreApp,Version=v9.0/win-x64";
-/// 程序集登记键（targets 与 libraries 两处共用）
-const LIB_KEY: &str = "bgd_mcp_bridge/1.0.0";
+/// 程序集登记键前缀（0.5.3 起版本号跟随本应用版本，见 lib_key()）
+const LIB_KEY_PREFIX: &str = "bgd_mcp_bridge/";
+
+/// 程序集登记键（targets 与 libraries 两处共用）：版本号跟随本应用版本
+/// （CI 按 tag 注入 Cargo.toml version，本地 dev 构建为 0.0.0-dev）
+fn lib_key() -> String {
+    format!("{LIB_KEY_PREFIX}{}", env!("CARGO_PKG_VERSION"))
+}
+
+/// deps.json runtime 条目里的 assemblyVersion/fileVersion：<major>.<minor>.<patch>.0
+/// （版本号含 -dev 等后缀时截断 prerelease 段，解析失败回落 0.0.0.0）
+fn assembly_version() -> String {
+    let v = env!("CARGO_PKG_VERSION");
+    let core = v.split(['-', '+']).next().unwrap_or(v);
+    let parts: Vec<&str> = core.split('.').collect();
+    if parts.len() == 3 && parts.iter().all(|p| p.chars().all(|c| c.is_ascii_digit())) {
+        format!("{}.0", core)
+    } else {
+        "0.0.0.0".to_string()
+    }
+}
 
 fn dll_path(version_dir: &Path) -> std::path::PathBuf {
     version_dir.join("bgd_mcp_bridge.dll")
@@ -64,7 +83,10 @@ pub fn deploy(version_dir: &Path) -> Result<(), String> {
     let mut doc: Value =
         serde_json::from_str(&text).map_err(|e| format!("解析 {} 失败: {e}", deps.display()))?;
 
-    // targets[".NETCoreApp,Version=v9.0/win-x64"]["bgd_mcp_bridge/1.0.0"]（已存在则跳过）
+    // targets[".NETCoreApp,Version=v9.0/win-x64"]["bgd_mcp_bridge/<版本>"]（已存在则跳过；
+    // 版本升级带来的旧登记键先摘除，保证任意时刻只有一个 bgd_mcp_bridge 条目）
+    let key = lib_key();
+    let asm_ver = assembly_version();
     let targets = doc
         .get_mut("targets")
         .and_then(|v| v.as_object_mut())
@@ -75,23 +97,25 @@ pub fn deploy(version_dir: &Path) -> Result<(), String> {
     let group = group
         .as_object_mut()
         .ok_or_else(|| format!("sce.deps.json targets[\"{TARGET_GROUP}\"] 不是对象"))?;
-    group.entry(LIB_KEY.to_string()).or_insert_with(|| {
+    group.retain(|k, _| !k.starts_with(LIB_KEY_PREFIX) || k == &key);
+    group.entry(key.clone()).or_insert_with(|| {
         json!({
             "runtime": {
                 "bgd_mcp_bridge.dll": {
-                    "assemblyVersion": "1.0.0.0",
-                    "fileVersion": "1.0.0.0"
+                    "assemblyVersion": asm_ver,
+                    "fileVersion": asm_ver
                 }
             }
         })
     });
 
-    // libraries["bgd_mcp_bridge/1.0.0"]（已存在则跳过）
+    // libraries["bgd_mcp_bridge/<版本>"]（同款：旧版本键先摘除）
     let libraries = doc
         .get_mut("libraries")
         .and_then(|v| v.as_object_mut())
         .ok_or_else(|| "sce.deps.json 缺少 libraries 对象".to_string())?;
-    libraries.entry(LIB_KEY.to_string()).or_insert_with(|| {
+    libraries.retain(|k, _| !k.starts_with(LIB_KEY_PREFIX) || k == &key);
+    libraries.entry(key).or_insert_with(|| {
         json!({"type": "project", "serviceable": false, "sha512": ""})
     });
 
@@ -129,6 +153,7 @@ pub fn needs_redeploy(version_dir: &Path) -> bool {
 }
 
 /// 摘除：从 sce.deps.json 移除登记条目（没有则跳过）+ 删除 dll。
+/// 按 `bgd_mcp_bridge/` 前缀匹配所有版本键（而非仅当前版本），保证跨版本升级后旧登记清干净。
 /// 注意：不删除 sce.deps.json_bak（那是「还原补丁」用的原始备份）。
 pub fn undeploy(version_dir: &Path) -> Result<(), String> {
     let deps = deps_path(version_dir);
@@ -144,14 +169,14 @@ pub fn undeploy(version_dir: &Path) -> Result<(), String> {
             .and_then(|t| t.get_mut(TARGET_GROUP))
             .and_then(|g| g.as_object_mut())
         {
-            if group.remove(LIB_KEY).is_some() {
-                changed = true;
-            }
+            let before = group.len();
+            group.retain(|k, _| !k.starts_with(LIB_KEY_PREFIX));
+            changed |= group.len() != before;
         }
         if let Some(libraries) = doc.get_mut("libraries").and_then(|l| l.as_object_mut()) {
-            if libraries.remove(LIB_KEY).is_some() {
-                changed = true;
-            }
+            let before = libraries.len();
+            libraries.retain(|k, _| !k.starts_with(LIB_KEY_PREFIX));
+            changed |= libraries.len() != before;
         }
         if changed {
             let out = serde_json::to_string_pretty(&doc)
@@ -228,6 +253,7 @@ mod tests {
         let dir = setup();
         let dll = dir.join("bgd_mcp_bridge.dll");
         let bak = dir.join("sce.deps.json_bak");
+        let key = lib_key();
 
         // deploy：条目注入 + dll 写入 + 首次备份
         deploy(&dir).unwrap();
@@ -236,17 +262,20 @@ mod tests {
         assert_eq!(fs::read_to_string(&bak).unwrap(), MINI_DEPS);
         let text = fs::read_to_string(dir.join("sce.deps.json")).unwrap();
         let doc: Value = serde_json::from_str(&text).unwrap();
-        let entry = &doc["targets"][TARGET_GROUP][LIB_KEY];
-        assert_eq!(entry["runtime"]["bgd_mcp_bridge.dll"]["assemblyVersion"], "1.0.0.0");
-        assert_eq!(doc["libraries"][LIB_KEY]["type"], "project");
+        let entry = &doc["targets"][TARGET_GROUP][key.as_str()];
+        assert_eq!(
+            entry["runtime"]["bgd_mcp_bridge.dll"]["assemblyVersion"],
+            assembly_version()
+        );
+        assert_eq!(doc["libraries"][key.as_str()]["type"], "project");
         // 另一个 targets 组不受影响
-        assert!(doc["targets"][".NETCoreApp,Version=v9.0"].get(LIB_KEY).is_none());
+        assert!(doc["targets"][".NETCoreApp,Version=v9.0"].get(key.as_str()).is_none());
 
         // 再 deploy：幂等（备份仍是原文，内容不重复）
         deploy(&dir).unwrap();
         assert_eq!(fs::read_to_string(&bak).unwrap(), MINI_DEPS);
         let text2 = fs::read_to_string(dir.join("sce.deps.json")).unwrap();
-        assert_eq!(text2.matches(LIB_KEY).count(), 2); // targets + libraries 各一处
+        assert_eq!(text2.matches(key.as_str()).count(), 2); // targets + libraries 各一处
 
         // undeploy：条目摘除 + dll 删除，备份保留
         undeploy(&dir).unwrap();
@@ -256,8 +285,8 @@ mod tests {
             &fs::read_to_string(dir.join("sce.deps.json")).unwrap(),
         )
         .unwrap();
-        assert!(doc["targets"][TARGET_GROUP].get(LIB_KEY).is_none());
-        assert!(doc["libraries"].get(LIB_KEY).is_none());
+        assert!(doc["targets"][TARGET_GROUP].get(key.as_str()).is_none());
+        assert!(doc["libraries"].get(key.as_str()).is_none());
 
         // 再 undeploy：幂等不报错
         undeploy(&dir).unwrap();
@@ -271,6 +300,54 @@ mod tests {
 
         // 再 restore_deps：无备份无 dll，跳过不报错
         restore_deps(&dir).unwrap();
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn setup_xv() -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("editor_patch_bridge_xv_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("sce.deps.json"), MINI_DEPS).unwrap();
+        dir
+    }
+
+    /// 跨版本：旧版本登记键在 deploy 时被替换、undeploy 时按前缀全清
+    #[test]
+    fn test_cross_version_cleanup() {
+        let dir = setup_xv();
+        let deps = dir.join("sce.deps.json");
+
+        // 构造旧版本登记（模拟上个版本部署过）
+        let mut doc: Value = serde_json::from_str(MINI_DEPS).unwrap();
+        doc["targets"][TARGET_GROUP]["bgd_mcp_bridge/0.5.0"] = json!({
+            "runtime": { "bgd_mcp_bridge.dll": { "assemblyVersion": "0.5.0.0", "fileVersion": "0.5.0.0" } }
+        });
+        doc["libraries"]["bgd_mcp_bridge/0.5.0"] =
+            json!({"type": "project", "serviceable": false, "sha512": ""});
+        fs::write(&deps, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+
+        // deploy 当前版本：旧键被摘除，只剩当前版本键
+        deploy(&dir).unwrap();
+        let text = fs::read_to_string(&deps).unwrap();
+        assert!(!text.contains("bgd_mcp_bridge/0.5.0"));
+        let doc: Value = serde_json::from_str(&text).unwrap();
+        assert!(doc["targets"][TARGET_GROUP].get(lib_key().as_str()).is_some());
+        assert_eq!(
+            doc["libraries"]
+                .as_object()
+                .unwrap()
+                .keys()
+                .filter(|k| k.starts_with(LIB_KEY_PREFIX))
+                .count(),
+            1
+        );
+
+        // undeploy：任意版本键都被前缀清除
+        undeploy(&dir).unwrap();
+        let text = fs::read_to_string(&deps).unwrap();
+        assert!(!text.contains(LIB_KEY_PREFIX));
 
         let _ = fs::remove_dir_all(&dir);
     }

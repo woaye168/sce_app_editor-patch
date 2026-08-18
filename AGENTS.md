@@ -24,7 +24,9 @@
 sce_app_editor-patch/
 ├── src/
 │   ├── main.rs            # UI（egui 三标签：内核/补丁/帮助）+ 进度条 + 入口
+│   ├── lib.rs             # 库入口（core 暴露为库目标，examples 复用内核实现）
 │   └── core/
+│       ├── slot_inject.rs # 插槽注入/解锁变换（make_slots 与内核运行时注入共用，单一事实源）
 │       ├── mod.rs
 │       ├── locate.rs      # 定位链：项目 → 编辑器根 → 任意包目录（多库）
 │       ├── crypto.rs      # XOR 识别/解密（TNND 头 + CREATEEASY 密钥），原子写
@@ -34,6 +36,7 @@ sce_app_editor-patch/
 │       ├── kernel.rs      # 库登记（LIBS）/整库应用/slots复制/状态检查/还原（含测试）
 │       └── modules.rs     # 补丁模块注册（按库分组/默认勾选）/启停/框架入口重建
 ├── patches/
+│   ├── modules.json              # 模块清单元数据（0.5.3 起外置：id/pkg/名称/描述/默认勾选/部署dll/注入项目根）
 │   └── <包名>/<模块id>/main.lua  # 内置补丁模块（不改库源码，编译期 include_str! 嵌入）
 ├── csharp/
 │   ├── bgd_mcp_bridge/    # .NET 9 类库：编辑器进程内 MCP 桥（编译期 include_bytes! 嵌入 exe）
@@ -41,6 +44,7 @@ sce_app_editor-patch/
 │   └── make_catalog/      # 工具：反射扫描宿主 dll 生成 catalog.json 骨架（编辑器升级后重跑）
 ├── slots/
 │   └── <包名>/<库版本>/<源码目录结构>/file.lua  # 插槽文件（改库源码，版本敏感，include_dir 嵌入）
+│       + slot.manifest.json      # 插槽清单（每文件官方源 sha256，「同内容复用」回退判定依据）
 ├── examples/
 │   ├── decrypt_mirror.rs  # 工具：整库解密出明文镜像（研究用）
 │   └── make_slots.rs      # 工具：生成 slots 插槽文件（解密+GBK转UTF-8+注入）
@@ -69,8 +73,10 @@ sce_app_editor-patch/
 
 ### 内核补丁（kernel.rs）
 
-- **库登记制**：`LIBS` 常量表登记「包名 + require 根 + 入口文件」。应用补丁 = 对每库依次：整库备份（仅首次）→ 整库并行解密 → **复制插槽文件** → 补丁目录/默认模块。
-- **插槽文件（0.3.1 起）**：仓库 `slots/<包名>/<库版本>/` 下放「带插槽的完整新源码」，编译期 `include_dir` 嵌入，应用时整树**字节级复制覆盖**（不做编解码，天然免疫 GBK/UTF-8 混合）。无匹配版本子目录则跳过并提示。天然支持多插槽与整文件覆盖。
+- **库登记制**：`LIBS` 常量表登记「包名 + require 根 + 入口文件」。应用补丁 = 对每库依次：整库备份（仅首次）→ 整库并行解密 → **应用插槽（三级回退）** → 补丁目录/默认模块。
+- **插槽文件（0.3.1 起）**：仓库 `slots/<包名>/<库版本>/` 下放「带插槽的完整新源码」，编译期 `include_dir` 嵌入，应用时整树**字节级复制覆盖**（不做编解码，天然免疫 GBK/UTF-8 混合）。天然支持多插槽与整文件覆盖。
+- **插槽三级回退（0.5.3 起，F4）**：编辑器升级包版本后不再「无插槽即跳过」：① 精确版本 slots 存在 → 字节复制；② 否则找最近低版本带 `slot.manifest.json` 的 slots，其记录的官方源 sha256 与新版本解码源全部一致 → 直接复用；③ 仍不一致 → **运行时模式注入**（`slot_inject.rs`：与 make_slots 共用的 insert_slot/transform_unlock 实现，单一事实源），锚点失败明确报错提示重跑 make_slots。状态检查 `SlotLevel`（Exact/Reusable(v)/Injectable/Missing）同步驱动 UI 提示。注入/剥离幂等（strip_slot/strip_unlock），对已打补丁的源重跑不会双重注入。
+- **manifest 生成约定**：make_slots 重跑时产出 `slot.manifest.json`（官方源 sha256）；对已打补丁的版本会先剥离再哈希（干净源哈希）。应用插槽时 manifest 文件本身不写入包目录。
 - 当前插槽：script 库 `common/init.lua`（框架入口插槽，末尾追加 pcall require）+ `common/isolation.lua`（解锁 = nil 行）；xdeditor 库 `main.lua`（入口插槽，顶层 return 之前）。
 - 插槽文件由 `examples/make_slots` 生成（解密 → GBK→UTF-8 → 注入/转换），版本更新后重跑即可。
 - **状态检查**（`check()`）：入口含插槽标记（script 库另需 isolation 解锁标记）。编辑器升级覆盖后显示「未应用」，重新「应用补丁」即可（已启用模块保留）。
@@ -81,10 +87,10 @@ sce_app_editor-patch/
 
 - 补丁目录在**库 require 根**下：`<require根>/sce_app_editor-patch/`，`main.lua` 为 AUTO-GENERATED 入口，按启用列表 `pcall(require, 'sce_app_editor-patch.<id>.main')`。整库解密后全部写**明文**。
 - **启用状态即文件系统状态**：模块目录存在即启用。
-- 模块声明 `default_enabled`：内核补丁**首次创建**补丁目录时自动启用（用户手动关闭后重新应用不会强开；编辑器升级换版本目录后按全新处理会再启用默认）。
+- **模块元数据外置（0.5.3 起，F5）**：`patches/modules.json` 声明各模块 id/pkg/名称/描述/`default_enabled`/`deploy_bridge_dll`/`inject_project_root`（编译期嵌入）；调整默认勾选只改该文件。新增模块：`patches/<pkg>/<id>/` 放 lua + modules.json 登记 + `modules.rs module_files` 挂文件。
+- 模块声明 `default_enabled`：内核补丁**首次创建**补丁目录时自动启用（用户手动关闭后重新应用不会强开；编辑器升级换版本目录后按全新处理会再启用默认）。默认模块启用走完整 set_module 链路（含 dll 部署/项目路径注入）；单个失败不中断整体应用（记警告，如编辑器运行中锁定 dll）。
 - 模块按 `pkg` 归属库，UI 按库分组罗列；该库内核未应用时勾选禁用。
-- 新增模块：`patches/<pkg>/<id>/` 放 lua + `builtin_modules()` 注册。
-- 现有模块：script/`hello`（示例）、xdeditor/`unwatch`（解除项目文件监听，勾选时应用注入 `_project_root.lua`——项目目录监听器在 xdeditor 进程 file_monitor_window.lua，script 包拦截不到）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；用官方事件桥 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)` 注册，不在入口模块 require menu_bar——详见库知识库 hooks.md）。
+- 现有模块：script/`hello`（示例）、xdeditor/`unwatch`（解除项目文件监听，**默认开启**；勾选时应用注入 `_project_root.lua`——项目目录监听器在 xdeditor 进程 file_monitor_window.lua，script 包拦截不到；0.5.3 起 F1：应用启动/刷新时自动比对并重写注入路径，切项目无需重新勾选）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；用官方事件桥 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)` 注册，不在入口模块 require menu_bar——详见库知识库 hooks.md）、xdeditor/`bgd_mcp_bridge`（MCP 桥，**默认开启**，0.5.3 起）。
 
 ### 备份与日志（backup.rs / log.rs）
 
@@ -94,9 +100,12 @@ sce_app_editor-patch/
 ### bgd_mcp_bridge（C# 扩展注入）
 
 - dll 在勾选补丁模块时部署到 `<运行根>/version-<api>/` 并登记 `sce.deps.json`（备份 `sce.deps.json_bak`）；关闭时摘除；「还原补丁」时整体恢复。
+- **版本号跟随插件版本（0.5.3 起，F2）**：csproj `Version` 固定 `0.0.0-dev` 占位，CI 按 tag `-p:Version` 注入（先于 cargo build）；sce.deps.json 登记键为 `bgd_mcp_bridge/<版本>`（Rust 侧 `env!("CARGO_PKG_VERSION")` 生成），deploy 自动替换旧版本键、undeploy 按前缀全清。
 - 编辑器内经 `SCE.Common.csharp_activate_window` 激活，隐藏窗口内跑 HttpListener（127.0.0.1:39177+）暴露 HTTP JSON-RPC 与 MCP `/mcp` 端点；C#↔Lua 双向走事件总线（`bgd_mcp_cmd`/`bgd_mcp_ack`/`bgd_mcp_event`）。
 - **0.5.0 起为 Gateway 架构**：tools/list 恒定 10 个元工具，全部能力进能力目录（`catalog.json` 构建期生成 + `annotations.json` 人工标注层，均编译期嵌入 dll）。能力通道：svc（DI 服务反射，服务级准入制）/datacore（IDataCore 手写封装）/cpp（静态基元方法）/cmd+lua（Lua 桥）/sys。安全分级 read/write/danger（danger 需 config.json `danger_allow` 放行），write/danger 调用写审计日志。
-- 编辑器升级后：重跑 `dotnet run --project csharp/make_catalog` 重新生成 catalog.json（make_slots 同款约定），再构建 dll。
+- **0.5.3 新增 lua 能力**：`lua.publish_project`（danger；EDITOR.upload_map promise 通道，分钟级，调用方放大 timeout_ms）与 `lua.capture_game`（read；引擎 `snapshot_scene_callback` 快照 PIE 画面到 png）。Lua 桥支持**延迟 ack**（handler 返回 DEFERRED，异步回调里自行 send_ack）。机制研究见 [doc/research/publish-and-capture.md](doc/research/publish-and-capture.md)。
+- **编辑器外聚合入口在 bgd_sce_tools**（0.5.3 场景一）：`bgd_sce_tools mcp` stdio 服务承担启动/关闭编辑器、日志获取与在线透传，AI 只需配置这一个 MCP。
+- 编辑器升级后：重跑 `dotnet run --project csharp/make_catalog -- --project <项目根>` 重新生成 catalog.json（make_slots 同款约定；0.5.3 起支持 --project 推导宿主目录，也兼容显式 `<宿主目录> <api版本>`），再构建 dll。
 - 详见 [doc/research/csharp-module-injection.md](doc/research/csharp-module-injection.md) 与 [doc/research/mcp-integration-guide.md](doc/research/mcp-integration-guide.md)。
 
 ### 开发工具（examples/）

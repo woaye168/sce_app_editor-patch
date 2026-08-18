@@ -1,6 +1,6 @@
 {
   "engine_version": "13",
-  "generated_at": "2026-08-16 22:34:49",
+  "generated_at": "2026-08-18 23:57:51",
   "capabilities": [
     {
       "id": "svc.FileSystem.SetCurrentDir",
@@ -5322,6 +5322,29 @@
           "type": "string",
           "required": true,
           "description": "任意 Lua 代码（pcall 执行，兜底逃生舱；默认 danger 需配置放行）"
+        }
+      ]
+    },
+    {
+      "id": "lua.publish_project",
+      "executor": "lua",
+      "method": "publish_project",
+      "returns": "object",
+      "risk": "danger",
+      "params": []
+    },
+    {
+      "id": "lua.capture_game",
+      "executor": "lua",
+      "method": "capture_game",
+      "returns": "object",
+      "risk": "read",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": false,
+          "description": "png 落盘绝对路径（缺省自动生成到 用户目录/screenShot/）"
         }
       ]
     },

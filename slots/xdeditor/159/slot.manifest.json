@@ -1,0 +1,10 @@
+{
+  "files": {
+    "main.lua": {
+      "kind": "slot",
+      "source_sha256": "81a06f78e7bc78d904767c5049c019c43f092c039ed0affe5816e8e35f116ca2"
+    }
+  },
+  "pkg": "xdeditor",
+  "version": 159
+}

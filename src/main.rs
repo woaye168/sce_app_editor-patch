@@ -10,10 +10,8 @@
 // Windows 下不弹出黑色控制台窗口
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-mod core;
-
 use clap::Parser;
-use core::{bridge_deploy, kernel, locate, log, modules, EditorTarget};
+use sce_app_editor_patch::core::{bridge_deploy, kernel, locate, log, modules, EditorTarget};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -179,6 +177,7 @@ impl EditorPatchApp {
                 self.target = Some(target);
                 self.log("INFO", &format!("已加载项目: {}", root.display()));
                 self.load_mcp_port();
+                self.sync_injected_project_roots();
                 self.auto_redeploy_bridge();
             }
             Err(e) => {
@@ -188,6 +187,49 @@ impl EditorPatchApp {
                 self.locate_error = e.clone();
                 self.status = format!("定位失败: {e}");
                 log::log(Some(&root), None, "ERROR", &format!("定位失败: {e}"));
+            }
+        }
+    }
+
+    /// F1：项目切换后自动刷新 inject_project_root 模块注入的项目路径。
+    /// 场景：bgd_sce_tools 切换项目后重开本应用，UI 已是新项目，但编辑器库里
+    /// unwatch 的 _project_root.lua 还是旧路径（旧逻辑需取消再勾选才刷新）。
+    fn sync_injected_project_roots(&mut self) {
+        let Some(root) = self.project_root.clone() else { return };
+        let Some(target) = &self.target else { return };
+        for m in &self.modules {
+            if !m.inject_project_root {
+                continue;
+            }
+            let enabled = self
+                .enabled
+                .get(m.pkg.as_str())
+                .map(|ids| ids.iter().any(|i| i == &m.id))
+                .unwrap_or(false);
+            if !enabled {
+                continue;
+            }
+            let Some(lib) = kernel::LIBS.iter().find(|l| l.pkg == m.pkg) else {
+                continue;
+            };
+            let Ok(lib_root) = lib.require_root_dir(target) else {
+                continue;
+            };
+            match modules::sync_project_root(&lib_root, m, &root) {
+                Ok(true) => {
+                    self.log(
+                        "INFO",
+                        &format!("模块[{}]注入的项目路径已自动更新为: {}", m.id, root.display()),
+                    );
+                    self.status = format!(
+                        "检测到项目切换，已自动更新模块「{}」注入的项目路径（重启星火编辑器后生效）",
+                        m.name
+                    );
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    self.log("ERROR", &format!("模块[{}]项目路径同步失败: {e}", m.id));
+                }
             }
         }
     }
@@ -457,11 +499,9 @@ impl EditorPatchApp {
                     }
                 }
                 ui.label(format!("{} [v{}]", s.label, s.version)).on_hover_text(&s.path);
-                if !s.has_slots && s.status != kernel::LibStatus::Applied {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(0xc0, 0x90, 0x30),
-                        "（无此版本插槽文件，将跳过）",
-                    );
+                let hint = s.slot_level.hint();
+                if !hint.is_empty() && s.status != kernel::LibStatus::Applied {
+                    ui.colored_label(egui::Color32::from_rgb(0xc0, 0x90, 0x30), hint);
                 }
                 if s.has_backup {
                     ui.monospace("（有备份）");
@@ -559,7 +599,7 @@ impl EditorPatchApp {
                         let mut on = self
                             .enabled
                             .get(lib.pkg)
-                            .map(|ids| ids.iter().any(|id| id == m.id))
+                            .map(|ids| ids.iter().any(|id| id == &m.id))
                             .unwrap_or(false);
                         ui.horizontal(|ui| {
                             let cb = egui::Checkbox::new(
@@ -572,7 +612,7 @@ impl EditorPatchApp {
                             ui.monospace(format!("({})", m.id));
                         });
                         ui.indent(format!("desc_{}", m.id), |ui| {
-                            ui.label(m.description);
+                            ui.label(&m.description);
                         });
                         ui.add_space(2.0);
                     }

@@ -10,26 +10,52 @@
 //!
 //! - 库经内核补丁整库解密后为裸露源码，框架/模块文件也写明文（便于查看调试）。
 //! - **启用状态即文件系统状态**：模块目录存在即启用，无额外状态文件。
+//! - **模块元数据外置（0.5.3 起）**：`patches/modules.json` 声明各模块
+//!   id/pkg/名称/描述/默认勾选/部署dll/注入项目根，编译期 include_str! 嵌入；
+//!   调整默认勾选只改该文件。模块 lua 文件仍在 `patches/<pkg>/<id>/` 下，
+//!   由 `module_files` 按 id 挂载（include_str! 嵌入）。
 //! - 模块可声明 `default_enabled`：内核补丁首次创建补丁目录时自动启用。
-//! - 新增内置模块：`patches/<pkg>/<id>/` 下放 lua 文件 + `builtin_modules()` 注册。
 
 use super::{bridge_deploy, crypto};
+use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// 注入到库 require 根下的补丁目录名（与本仓库同名）
 pub const PATCH_DIR_NAME: &str = "sce_app_editor-patch";
 
+/// 编译期嵌入的模块清单（patches/modules.json）
+const MODULES_JSON: &str = include_str!("../../patches/modules.json");
+
+#[derive(Deserialize)]
+struct ModulesFile {
+    modules: Vec<ModuleMeta>,
+}
+
+#[derive(Deserialize)]
+struct ModuleMeta {
+    id: String,
+    pkg: String,
+    name: String,
+    description: String,
+    #[serde(default)]
+    default_enabled: bool,
+    #[serde(default)]
+    deploy_bridge_dll: bool,
+    #[serde(default)]
+    inject_project_root: bool,
+}
+
 /// 一个内置补丁模块
 pub struct PatchModule {
     /// 模块 id（目录名，同时是 require 路径的一段）
-    pub id: &'static str,
+    pub id: String,
     /// 所属库（api_pak_version.json 包名，如 script / xdeditor）
-    pub pkg: &'static str,
+    pub pkg: String,
     /// 显示名（中文）
-    pub name: &'static str,
+    pub name: String,
     /// 功能描述
-    pub description: &'static str,
+    pub description: String,
     /// 默认勾选（内核补丁首次创建补丁目录时自动启用）
     pub default_enabled: bool,
     /// 模块文件：(模块目录内相对路径, 文件内容)
@@ -41,50 +67,38 @@ pub struct PatchModule {
     pub inject_project_root: bool,
 }
 
-/// 全部内置补丁模块（新增模块在此注册 + patches/<pkg>/<id>/ 下放文件）
+/// 模块 lua 文件（编译期 include_str! 嵌入）。新增模块在此挂载。
+fn module_files(id: &str) -> &'static [(&'static str, &'static str)] {
+    match id {
+        "hello" => &[("main.lua", include_str!("../../patches/script/hello/main.lua"))],
+        "unwatch" => &[("main.lua", include_str!("../../patches/xdeditor/unwatch/main.lua"))],
+        "menu_bgd" => &[("main.lua", include_str!("../../patches/xdeditor/menu_bgd/main.lua"))],
+        "bgd_mcp_bridge" => &[(
+            "main.lua",
+            include_str!("../../patches/xdeditor/bgd_mcp_bridge/main.lua"),
+        )],
+        _ => &[],
+    }
+}
+
+/// 全部内置补丁模块（读 patches/modules.json + module_files 挂文件）
 pub fn builtin_modules() -> Vec<PatchModule> {
-    vec![
-        PatchModule {
-            id: "hello",
-            pkg: "script",
-            name: "示例补丁",
-            description: "验证补丁链路：加载时输出日志，暴露全局标记 __EDITOR_PATCH__，并报告关键函数的解禁状态。",
-            default_enabled: false,
-            files: &[("main.lua", include_str!("../../patches/script/hello/main.lua"))],
-            deploy_bridge_dll: false,
-            inject_project_root: false,
-        },
-        PatchModule {
-            id: "unwatch",
-            pkg: "xdeditor",
-            name: "解除项目文件监听",
-            description: "移除并拦截编辑器对项目目录的文件变更监听（io.remove_watch / io.add_watch），外部修改项目文件时不再弹出重载提示。项目根由本应用在勾选时注入（_project_root.lua）。",
-            default_enabled: false,
-            files: &[("main.lua", include_str!("../../patches/xdeditor/unwatch/main.lua"))],
-            deploy_bridge_dll: false,
-            inject_project_root: true,
-        },
-        PatchModule {
-            id: "menu_bgd",
-            pkg: "xdeditor",
-            name: "帮助菜单 bgd_sce_tools 入口",
-            description: "编辑器顶部菜单「帮助」下增加「bgd_sce_tools」子菜单，点击打开 bgd_sce_tools 的 GitHub 仓库。",
-            default_enabled: true,
-            files: &[("main.lua", include_str!("../../patches/xdeditor/menu_bgd/main.lua"))],
-            deploy_bridge_dll: false,
-            inject_project_root: false,
-        },
-        PatchModule {
-            id: "bgd_mcp_bridge",
-            pkg: "xdeditor",
-            name: "MCP 桥（外部 AI 控制）",
-            description: "在编辑器进程内启动 HTTP/MCP 服务（127.0.0.1），供外部 AI 调用编辑器命令（启动/停止调试等）。启用时部署 bgd_mcp_bridge.dll 到引擎目录。",
-            default_enabled: false,
-            files: &[("main.lua", include_str!("../../patches/xdeditor/bgd_mcp_bridge/main.lua"))],
-            deploy_bridge_dll: true,
-            inject_project_root: false,
-        },
-    ]
+    let parsed: ModulesFile =
+        serde_json::from_str(MODULES_JSON).expect("patches/modules.json 解析失败");
+    parsed
+        .modules
+        .into_iter()
+        .map(|m| PatchModule {
+            files: module_files(&m.id),
+            id: m.id,
+            pkg: m.pkg,
+            name: m.name,
+            description: m.description,
+            default_enabled: m.default_enabled,
+            deploy_bridge_dll: m.deploy_bridge_dll,
+            inject_project_root: m.inject_project_root,
+        })
+        .collect()
 }
 
 /// 指定库的补丁目录：<库require根>/sce_app_editor-patch
@@ -123,7 +137,7 @@ pub fn set_module(
     version_dir: Option<&Path>,
     project_root: Option<&Path>,
 ) -> Result<(), String> {
-    let dir = patch_dir(lib_require_root).join(module.id);
+    let dir = patch_dir(lib_require_root).join(&module.id);
     if enable {
         if module.deploy_bridge_dll {
             if let Some(vdir) = version_dir {
@@ -131,7 +145,7 @@ pub fn set_module(
             }
         }
         // 先校验 project_root（需要注入的模块缺路径直接报错，不写半个模块）
-        let inject_root = if enable && module.inject_project_root {
+        let inject_root = if module.inject_project_root {
             Some(project_root.ok_or_else(|| {
                 format!("模块「{}」需要项目路径注入（请先在应用内选择/确认项目）", module.name)
             })?)
@@ -153,6 +167,36 @@ pub fn set_module(
         }
     }
     regenerate_entry(lib_require_root)
+}
+
+/// 同步注入的项目根（F1：项目切换后自动刷新）。
+/// 读取已启用模块的 `_project_root.lua`，与当前项目根比对，不一致则原子重写。
+/// 返回是否发生了重写；模块未启用/无注入文件时返回 Ok(false)。
+pub fn sync_project_root(
+    lib_require_root: &Path,
+    module: &PatchModule,
+    project_root: &Path,
+) -> Result<bool, String> {
+    if !module.inject_project_root {
+        return Ok(false);
+    }
+    let file = patch_dir(lib_require_root)
+        .join(&module.id)
+        .join("_project_root.lua");
+    if !file.is_file() {
+        return Ok(false);
+    }
+    let normalized = project_root.to_string_lossy().replace('\\', "/");
+    let existing = fs::read_to_string(&file).map_err(|e| format!("读取 {} 失败: {e}", file.display()))?;
+    let injected = existing
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("return [[").and_then(|s| s.strip_suffix("]]")))
+        .unwrap_or("");
+    if injected == normalized {
+        return Ok(false);
+    }
+    write_project_root(&file.parent().unwrap().to_path_buf(), project_root)?;
+    Ok(true)
 }
 
 /// 注入项目根：写 `_project_root.lua`（统一为正斜杠，Lua 侧长括号字符串免转义）
@@ -181,20 +225,33 @@ fn write_module_files(dir: &Path, module: &PatchModule) -> Result<(), String> {
 
 /// 启用所有默认勾选的模块（内核补丁首次创建补丁目录时调用）。
 /// 必须按 `pkg` 过滤——本函数对每个库各调一次，不过滤会把 xdeditor 的默认模块写进 script 包。
-pub fn apply_defaults(lib_require_root: &Path, pkg: &str) -> Result<Vec<String>, String> {
+/// `version_dir`/`project_root`：默认模块声明 deploy_bridge_dll / inject_project_root 时使用
+/// （0.5.3 起 bgd_mcp_bridge/unwatch 默认勾选，内核应用路径必须具备完整启用能力）。
+/// 单个默认模块启用失败（如编辑器运行中锁定 dll）不中断整体应用，失败项并入返回的 warnings。
+/// 返回 (已启用列表, 警告列表)；仅入口重建失败才返回 Err。
+pub fn apply_defaults(
+    lib_require_root: &Path,
+    pkg: &str,
+    version_dir: Option<&Path>,
+    project_root: Option<&Path>,
+) -> Result<(Vec<String>, Vec<String>), String> {
     let mut applied = Vec::new();
+    let mut warnings = Vec::new();
     for module in builtin_modules()
         .iter()
         .filter(|m| m.default_enabled && m.pkg == pkg)
     {
-        let dir = patch_dir(lib_require_root).join(module.id);
-        if !dir.exists() {
-            write_module_files(&dir, module)?;
-            applied.push(module.id.to_string());
+        let dir = patch_dir(lib_require_root).join(&module.id);
+        if dir.exists() {
+            continue;
+        }
+        match set_module(lib_require_root, module, true, version_dir, project_root) {
+            Ok(()) => applied.push(module.id.clone()),
+            Err(e) => warnings.push(format!("默认模块[{}]启用失败: {e}", module.id)),
         }
     }
     regenerate_entry(lib_require_root)?;
-    Ok(applied)
+    Ok((applied, warnings))
 }
 
 /// 按当前启用列表重建框架入口 main.lua（AUTO-GENERATED，明文写入）

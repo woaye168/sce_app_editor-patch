@@ -8,8 +8,12 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <RootNamespace>BgdMcpBridge</RootNamespace>
     <AssemblyName>bgd_mcp_bridge</AssemblyName>
-    <!-- 宿主程序集目录：本地开发默认指向星火编辑器 version-13 目录，零配置；
+    <!-- 版本号占位（与 Cargo.toml 同款约定）：CI 按 tag 注入 -p:Version=<版本>，
+         sce.deps.json 登记键/assemblyVersion 随之跟随插件版本（0.5.3 起） -->
+    <Version>0.0.0-dev</Version>
+    <!-- 宿主程序集目录解析优先级：命令行 -p:SceHostDir > 环境变量 SCE_HOST_DIR > 本机默认（仅开发便利）。
          CI/其他环境用 -p:SceHostDir=<目录> 覆盖（仓库 ci/refs/ 有引用程序集副本）。 -->
+    <SceHostDir Condition="'$(SceHostDir)' == '' and '$(SCE_HOST_DIR)' != ''">$(SCE_HOST_DIR)</SceHostDir>
     <SceHostDir Condition="'$(SceHostDir)' == ''">D:/sce_online/version-13</SceHostDir>
     <!-- 命令行传入的全局属性不能在项目内改值，故另算一份绝对路径版本：
          相对路径按命令行调用时的当前目录归一化（HintPath 默认相对项目目录解析，会错位） -->

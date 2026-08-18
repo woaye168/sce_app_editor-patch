@@ -85,6 +85,12 @@
       "precondition": "调试进行中（GamePlayInEditor 槽位存在）",
       "example": "{\"id\":\"lua.capture_game\",\"args\":{\"path\":\"D:/tmp/cap.png\"}}"
     },
+    "lua.get_game_view_rect": {
+      "description": "获取 PIE 游戏视口在编辑器窗口中的矩形（引擎 UI 逻辑坐标 + 逻辑分辨率），供外部截图按比例裁剪出纯游戏画面",
+      "aliases": ["game_view_rect", "视口矩形", "游戏视口位置"],
+      "tags": ["截图", "视口", "调试"],
+      "risk": "read"
+    },
     "sys.server_info": {
       "description": "服务自身信息（版本/端口/目录规模/漂移状态）",
       "aliases": ["server_info"],

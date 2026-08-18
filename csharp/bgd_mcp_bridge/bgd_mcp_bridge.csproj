@@ -55,6 +55,16 @@
       <HintPath>$(SceHostDirFull)/scemodule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- WindowSCE 基类（EditorMainWindow 的基类，0.5.3 GameViewRect 用） -->
+    <Reference Include="scecustomcontrol">
+      <HintPath>$(SceHostDirFull)/scecustomcontrol.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- WindowSCE 的上游基类 WindowEx（0.5.3 GameViewRect 用） -->
+    <Reference Include="WinUIEx">
+      <HintPath>$(SceHostDirFull)/WinUIEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

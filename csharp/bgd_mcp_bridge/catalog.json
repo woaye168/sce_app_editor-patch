@@ -1,6 +1,6 @@
 {
   "engine_version": "13",
-  "generated_at": "2026-08-18 23:57:51",
+  "generated_at": "2026-08-19 02:12:38",
   "capabilities": [
     {
       "id": "svc.FileSystem.SetCurrentDir",
@@ -5347,6 +5347,14 @@
           "description": "png 落盘绝对路径（缺省自动生成到 用户目录/screenShot/）"
         }
       ]
+    },
+    {
+      "id": "lua.get_game_view_rect",
+      "executor": "lua",
+      "method": "get_game_view_rect",
+      "returns": "object",
+      "risk": "read",
+      "params": []
     },
     {
       "id": "sys.server_info",

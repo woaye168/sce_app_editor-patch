@@ -336,7 +336,43 @@ handlers.publish_project = function(params, id)
     return DEFERRED
 end
 
+-- 获取 PIE 游戏视口在编辑器窗口中的矩形（0.5.3 修订版截图方案的 lua 环节）。
+-- 返回引擎 UI 逻辑坐标矩形 + 逻辑分辨率；外部（bgd_sce_tools WGC 截窗）按比例换算物理裁剪框。
+-- 原理：PIE 视口是 base.ui 控件树里的 viewport 控件（ui-<n>-GamePlayInEditor），
+-- 控件元表自带 get_screen_rect()（编辑器主区 main rect=(0,0,逻辑宽,逻辑高)）。
+handlers.get_game_view_rect = function()
+    if not (base and base.ui and base.ui.map) then
+        error('base.ui 不可用')
+    end
+    local ui
+    for k, v in pairs(base.ui.map) do
+        if tostring(k):match('^ui%-%d+%-GamePlayInEditor$') then
+            ui = v
+            break
+        end
+    end
+    if not ui or type(ui.get_screen_rect) ~= 'function' then
+        error('游戏视口控件不存在（游戏未在调试？）')
+    end
+    local ok, x, y, w, h = pcall(function()
+        return ui:get_screen_rect()
+    end)
+    if not ok or not x then
+        error('读取视口矩形失败: ' .. tostring(x))
+    end
+    local lw, lh
+    pcall(function()
+        lw, lh = common.get_resolution()
+    end)
+    if not lw or not lh then
+        error('无法获取编辑器 UI 逻辑分辨率')
+    end
+    return { x = x, y = y, width = w, height = h, logical_width = lw, logical_height = lh }
+end
+
 -- 截取游戏画面（R2 定稿：引擎原生 snapshot_scene_callback，PIE 截图按钮官方实现）
+-- 注意：该引擎快照只含 3D 场景、不含游戏 UI 覆盖层；MCP capture_game 默认走
+-- 「get_game_view_rect + 外部 WGC 整窗裁剪」路线（含游戏 UI），本 handler 留作兜底。
 -- params.path：png 落盘绝对路径（缺省 <用户目录>/screenShot/bgd_capture_<时间戳>.png）
 handlers.capture_game = function(params, id)
     if not sceneMgr then

@@ -31,37 +31,38 @@
 - 兜底：`log_mark='bgd_mcp'` 的结构化日志沉在编辑器主日志，事件通道失效时可查日志。
 - danger 分级保持不变（annotations.json 标注 + danger_allow 放行）。
 
-## R2：调试态游戏画面截取
+## R2：调试态游戏画面截取（终版：get_screen_rect + WGC 显示器裁剪）
 
-### 结论
+### 结论（真机实证，2026-08-19）
 
-**选定路线 a 的加强版：引擎原生 `sceneMgr:snapshot_scene_callback`，经 Lua 桥直调，PNG 落盘任意路径。**
-这是 PIE 视图「截图」按钮的官方实现，引擎自己渲染出图，无 D3D 黑屏问题，无需 WGC/PrintWindow。路线 b/c 仅作备选不再投入。
+**终版方案：lua 桥读 PIE 视口控件的 `get_screen_rect()`（引擎 UI 逻辑坐标）→ 外部 WGC 截取显示器 → 按「客户区物理/逻辑」比例裁剪**。
+产出 = 纯游戏画面 + 游戏 UI（不含编辑器界面），test_res002 真机验证通过（血条/技能/背包等游戏 UI 完整入镜）。
 
-### 证据链
+### 为什么不是引擎 snapshot_scene_callback（初版方案的实证否定）
 
-1. PIE 视图截图按钮（ui/gameplay_in_editor_view.lua:537-564）：
-   ```lua
-   local viewport = sceneMgr:get_ui_viewport(self.ui_name)          -- ui_name = 槽位 id
-   local viewport_x, viewport_y = viewport:get_inner_viewport_size()
-   sceneMgr:snapshot_scene_callback(self.ui_name, 0, 0, viewport_x, viewport_y, path,
-       math.max(game_snapshot_magnification_index - 1, 0.5), nil,
-       function(result) -- result > 0 成功
-           ...
-       end)
-   ```
-   - `sceneMgr = SCE.GetSceneManager()`（:5）。
-   - `ui_name` = 插件槽位 id（:842 `ui_name = id`），单开调试即 `'GamePlayInEditor'`（多开为 GamePlayInEditor1..4）。
-   - path 任意（官方用 `MainFrame:GetUserPath()..'screenShot/editor_screenShot_N.png'`），png。
-   - 倍率参数：官方 UI 选项映射 `magnification_index - 1`（默认 index 2 → 1.0 原倍），下限 0.5。
-   - 游戏未启动时 `get_ui_viewport` 返回 nil（:566 「游戏未启动」提示）——天然的失败前置判断。
-2. CppInterface/catalog 反编译检索无 Screenshot/Capture/ReadPixels 导出——托管侧没有同等能力，Lua 桥是唯一通道（与 sceneMgr 其他调用一致走 xdeditor Lua）。
+初版选定引擎原生 `sceneMgr:snapshot_scene_callback`（PIE 截图按钮官方实现，gameplay_in_editor_view.lua:537）。
+真机验证发现它**只截 3D 场景渲染、不含游戏 UI 覆盖层**，且对自定义相机场景不代表实际呈现帧
+（test_res002 截出纯色底）。截图工具的核心目的是验证 UI，该方案不成立，降级为 `lua.capture_game` 兜底能力。
 
-### 落地设计（capture_game）
+### 终版方案的证据链（逐步实证）
 
-- Lua 桥 `handlers.capture_game`：
-  1. `pluginMgr:is_plugin_ui_loaded('GamePlayInEditor')` 判定调试中，否则报错「游戏未启动」。
-  2. `sceneMgr:get_ui_viewport('GamePlayInEditor')` 取内视口尺寸。
-  3. 落盘路径由参数指定（C# 侧生成 `<项目>/.bgd/log/screenshots/capture_<时间戳>.png`），`snapshot_scene_callback` 异步回调拿 result。
-  4. ack 策略：截图回调通常在数帧内返回，可同步等短超时（如 10s）直接 ack `{ path, width, height }`；超时降级为事件回传。
-- C# 侧元工具 `capture_game`：经桥调用，把编辑器内落盘的 png 路径返回给 AI（AI 自行 Read 查看）。
+1. **编辑器主区不是 XAML**：EditorMainWindow 只挂 TitleMenuBar，内容区是 re-parent 进来的
+   引擎自绘窗口（EditorMainWindow.cs:85-94 SetParent childWindow_）；视觉树里找不到游戏视口的
+   SwapChainPanel（C# 视觉树方案不可行）。
+2. **SDL 窗口不可直接 WGC**：编辑器内容窗口类名 `SDL_app`，对其创建 GraphicsCaptureItem 实测失败
+   （Failed to convert item）——改为截取**所在显示器**（HMONITOR 恒定可截）。
+3. **PIE 视口位置有官方 API**：视口是 base.ui 控件树中的 viewport 控件（`base.ui.map['ui-<n>-GamePlayInEditor']`），
+   控件元表自带 `get_screen_rect()` 返回引擎 UI 逻辑坐标矩形；`common.get_resolution()` 返回逻辑分辨率
+   （编辑器主区 main rect = (0,0,逻辑宽,逻辑高)）。lua 桥 `lua.get_game_view_rect` 直接暴露。
+4. **坐标换算**：视口屏幕物理坐标 = SDL 窗口客户区屏幕原点（ClientToScreen）+ 逻辑矩形 × (客户区物理/逻辑) 比例；
+   裁剪框 = 屏幕物理坐标 − 显示器原点（GetMonitorInfo，多显示器安全）。
+
+### 落地实现
+
+- lua 桥 `handlers.get_game_view_rect`（read）：返回 `{x, y, width, height, logical_width, logical_height}`；
+  视口控件不存在即「游戏未在调试」。
+- bgd_sce_tools `editor::capture_editor_window`（MCP `capture_game`）：桥取矩形 → 找编辑器 SDL 内容窗口
+  （进程内最大 SDL_app 顶层窗口）→ WGC 截显示器 → `frame.buffer_crop` GPU 裁剪 → png 落盘
+  `<项目>/.bgd/log/screenshots/`，返回 `{path, width, height}`。
+- 已知边界：① 屏幕抓取读实际呈现内容，编辑器窗口被遮挡时该区域会被遮挡物覆盖（调试时保持编辑器前台）；
+  ② 编辑器窗口最小化时截取失败/超时。

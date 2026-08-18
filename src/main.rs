@@ -11,7 +11,15 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 use clap::Parser;
-use sce_app_editor_patch::core::{bridge_deploy, kernel, locate, log, modules, EditorTarget};
+use sce_app_editor_patch::core::{bridge_deploy, editor, kernel, locate, log, modules, EditorTarget};
+
+/// windows 子系统下 CLI 输出会被吞；命中 CLI 时附加到父进程控制台
+#[cfg(windows)]
+fn attach_parent_console() {
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(0xFFFFFFFF);
+    }
+}
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -28,6 +36,23 @@ struct Args {
 }
 
 fn main() -> eframe::Result<()> {
+    // CLI 子命令（0.5.4 起：编辑器控制能力随应用自持）：editor/logs/capture/mcp
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(first) = raw.first().map(|s| s.as_str()) {
+        match first {
+            "mcp" => {
+                // stdio MCP 走管道，不需要附加控制台
+                std::process::exit(sce_app_editor_patch::mcp::run_stdio());
+            }
+            "editor" | "logs" | "capture" => {
+                #[cfg(windows)]
+                attach_parent_console();
+                std::process::exit(sce_app_editor_patch::cli::run(&raw));
+            }
+            _ => {}
+        }
+    }
+
     let args = Args::parse();
 
     // 项目路径：优先 --project-path，否则启动后由用户在界面选择
@@ -109,6 +134,8 @@ struct EditorPatchApp {
     status: String,
     /// MCP 端口配置（文本框，默认 39177）
     mcp_port_input: String,
+    /// 编辑器 exe 名配置（文本框，默认 星火编辑器.exe）
+    exe_name_input: String,
 }
 
 impl EditorPatchApp {
@@ -124,6 +151,7 @@ impl EditorPatchApp {
             task: None,
             status: String::new(),
             mcp_port_input: String::new(),
+            exe_name_input: String::new(),
         };
         if let Some(root) = project_root {
             app.set_project(root);
@@ -153,6 +181,7 @@ impl EditorPatchApp {
     }
 
     fn set_project(&mut self, root: PathBuf) {
+        editor::set_last_project_path(&root);
         self.project_root = Some(root);
         self.refresh();
     }
@@ -174,6 +203,7 @@ impl EditorPatchApp {
                 }
                 self.locate_error.clear();
                 self.status = format!("已定位：编辑器版本 {}", target.api_version);
+                self.exe_name_input = editor::editor_exe_name(&target.engine_root());
                 self.target = Some(target);
                 self.log("INFO", &format!("已加载项目: {}", root.display()));
                 self.load_mcp_port();
@@ -198,7 +228,7 @@ impl EditorPatchApp {
         let Some(root) = self.project_root.clone() else { return };
         let Some(target) = &self.target else { return };
         for m in &self.modules {
-            if !m.inject_project_root {
+            if !m.inject_project_root && !m.inject_exe_path {
                 continue;
             }
             let enabled = self
@@ -229,6 +259,15 @@ impl EditorPatchApp {
                 Ok(false) => {}
                 Err(e) => {
                     self.log("ERROR", &format!("模块[{}]项目路径同步失败: {e}", m.id));
+                }
+            }
+            match modules::sync_exe_path(&lib_root, m) {
+                Ok(true) => {
+                    self.log("INFO", &format!("模块[{}]注入的 exe 路径已自动更新", m.id));
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    self.log("ERROR", &format!("模块[{}]exe 路径同步失败: {e}", m.id));
                 }
             }
         }
@@ -696,6 +735,34 @@ impl EditorPatchApp {
         ui.weak("保存后需重启星火编辑器生效；外部 AI 工具按 http://127.0.0.1:<端口>/mcp 配置。");
         ui.weak("注意避开系统保留端口段（Hyper-V/WSL 会动态保留整段，netstat 查不到占用），可用 netsh int ipv4 show excludedportrange tcp 查看。");
         ui.weak("启动时若配置端口不可用（被占/在保留段内），服务会自动向后避让并把实际端口写入 logs/bgd_csharp/port 文件。");
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        ui.label("编辑器可执行文件");
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label("exe 文件名：");
+            ui.add(egui::TextEdit::singleline(&mut self.exe_name_input).desired_width(180.0));
+            if ui.button("保存").clicked() {
+                let name = self.exe_name_input.trim().to_string();
+                if name.is_empty() || !name.ends_with(".exe") {
+                    self.status = format!("exe 名无效（需以 .exe 结尾）：{name}");
+                } else if let Some(target) = &self.target {
+                    match editor::set_editor_exe_name(&target.engine_root(), &name) {
+                        Ok(()) => {
+                            self.status = format!("编辑器 exe 名已保存为 {name}（editor start 即时生效）");
+                            self.log("INFO", &format!("编辑器 exe 名已保存: {name}"));
+                        }
+                        Err(e) => self.status = format!("保存失败: {e}"),
+                    }
+                } else {
+                    self.status = "未定位到编辑器，无法保存".to_string();
+                }
+            }
+        });
+        ui.add_space(2.0);
+        ui.weak("默认 星火编辑器.exe。若你的编辑器 exe 改过名，在此修改（editor start / MCP editor_start 按此名启动）。");
     }
 
     fn ui_help(ui: &mut egui::Ui) {

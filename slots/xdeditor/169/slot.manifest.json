@@ -3,6 +3,10 @@
     "main.lua": {
       "kind": "slot",
       "source_sha256": "cde54fbb2221cee97c43bc2b361af62b99581b1c1dd597558b10e42d4724b02a"
+    },
+    "ui/gameplay_in_editor_view.lua": {
+      "kind": "pie_capture_fix",
+      "source_sha256": "b04ef19fdb516a187c63e90539022f78a7cf49422005375e09c6dc534008a2dc"
     }
   },
   "pkg": "xdeditor",

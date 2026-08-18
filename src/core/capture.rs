@@ -156,12 +156,15 @@ struct WindowInfo {
     hwnd: *mut std::ffi::c_void,
 }
 
-/// 窗口可见性守护：隐藏/最小化时先不激活地恢复，Drop 时还原原状态
+/// 真后台截取守护：窗口被遮挡时 WGC 直接可截（重定向表面仍在）；窗口被最小化/隐藏时
+/// GraphicsCaptureItem 创建会失败——此时把窗口**离屏显示**（SHOWNOACTIVATE + 挪到 -32000
+/// 屏外坐标，用户屏幕无感知、不抢焦点），截完用保存的 WINDOWPLACEMENT 精确还原
+/// （回到最小化/隐藏与原始位置）。
 #[cfg(windows)]
 struct WindowRestoreGuard {
     hwnd: *mut std::ffi::c_void,
-    /// 原状态：0=原本可见（无需还原） 2=最小化（还原为最小化） 1=隐藏（重新隐藏）
-    restore_as: i32,
+    /// 原 WINDOWPLACEMENT（Drop 时还原）；None = 原本就可见无需处理
+    placement: Option<windows_sys::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT>,
 }
 
 #[cfg(windows)]
@@ -169,25 +172,29 @@ impl WindowRestoreGuard {
     fn ensure_visible(hwnd: *mut std::ffi::c_void) -> Self {
         use windows_sys::Win32::Foundation::HWND;
         use windows_sys::Win32::UI::WindowsAndMessaging::{
-            IsIconic, IsWindowVisible, ShowWindow, SW_RESTORE,
+            GetWindowPlacement, IsIconic, IsWindowVisible, SetWindowPos, ShowWindow,
+            SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, WINDOWPLACEMENT,
         };
-        let mut restore_as = 0;
         unsafe {
             let visible = IsWindowVisible(hwnd as HWND) != 0;
             let iconic = IsIconic(hwnd as HWND) != 0;
-            if iconic {
-                restore_as = 2;
-            } else if !visible {
-                restore_as = 1;
+            if visible && !iconic {
+                return Self { hwnd, placement: None };
             }
-            if restore_as != 0 {
-                // SW_RESTORE 从最小化/隐藏恢复（不抢焦点）
-                ShowWindow(hwnd as HWND, SW_RESTORE);
-                // 实测：恢复后引擎重排版+首帧呈现需要 ~2s，等太短会截到黑图
-                std::thread::sleep(Duration::from_millis(2500));
+            // 保存原始 placement（含最小化状态与还原位置）
+            let mut wp: WINDOWPLACEMENT = std::mem::zeroed();
+            wp.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+            if GetWindowPlacement(hwnd as HWND, &mut wp) == 0 {
+                return Self { hwnd, placement: None };
             }
+            // 离屏显示（不激活、不改大小、不改变 Z 序）
+            ShowWindow(hwnd as HWND, SW_SHOWNOACTIVATE);
+            SetWindowPos(hwnd as HWND, std::ptr::null_mut(), -32000, -32000, 0, 0,
+                SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER);
+            // 实测：恢复后引擎重排版+首帧呈现需要 ~2s，等太短会截到黑图
+            std::thread::sleep(Duration::from_millis(2500));
+            Self { hwnd, placement: Some(wp) }
         }
-        Self { hwnd, restore_as }
     }
 }
 
@@ -195,16 +202,10 @@ impl WindowRestoreGuard {
 impl Drop for WindowRestoreGuard {
     fn drop(&mut self) {
         use windows_sys::Win32::Foundation::HWND;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_MINIMIZE};
-        unsafe {
-            match self.restore_as {
-                2 => {
-                    ShowWindow(self.hwnd as HWND, SW_MINIMIZE);
-                }
-                1 => {
-                    ShowWindow(self.hwnd as HWND, SW_HIDE);
-                }
-                _ => {}
+        use windows_sys::Win32::UI::WindowsAndMessaging::SetWindowPlacement;
+        if let Some(wp) = &self.placement {
+            unsafe {
+                SetWindowPlacement(self.hwnd as HWND, wp);
             }
         }
     }
@@ -217,6 +218,7 @@ fn find_window_by_class(pid: u32, class: &str, skip_title: Option<&str>) -> Opti
     use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+        IsWindowVisible,
     };
 
     struct Ctx {
@@ -225,6 +227,8 @@ fn find_window_by_class(pid: u32, class: &str, skip_title: Option<&str>) -> Opti
         skip_title: String,
         best_hwnd: HWND,
         best_area: i64,
+        best_visible_hwnd: HWND,
+        best_visible_area: i64,
     }
     unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> i32 {
         let ctx = &mut *(lparam as *mut Ctx);
@@ -252,6 +256,11 @@ fn find_window_by_class(pid: u32, class: &str, skip_title: Option<&str>) -> Opti
                 ctx.best_area = area;
                 ctx.best_hwnd = hwnd;
             }
+            // 可见窗口单独记录（最小化停靠的 160x28 占位窗口面积小，正常可见时主窗口最大）
+            if IsWindowVisible(hwnd) != 0 && area > ctx.best_visible_area {
+                ctx.best_visible_area = area;
+                ctx.best_visible_hwnd = hwnd;
+            }
         }
         1
     }
@@ -262,14 +271,22 @@ fn find_window_by_class(pid: u32, class: &str, skip_title: Option<&str>) -> Opti
         skip_title: skip_title.unwrap_or("").to_string(),
         best_hwnd: std::ptr::null_mut(),
         best_area: 0,
+        best_visible_hwnd: std::ptr::null_mut(),
+        best_visible_area: 0,
     };
     unsafe {
         EnumWindows(Some(enum_proc), &mut ctx as *mut Ctx as LPARAM);
     }
-    if ctx.best_hwnd.is_null() {
+    // 优先可见的最大窗口（最小化停靠占位/隐藏辅助窗口靠后）
+    let chosen = if !ctx.best_visible_hwnd.is_null() {
+        ctx.best_visible_hwnd
+    } else {
+        ctx.best_hwnd
+    };
+    if chosen.is_null() {
         return None;
     }
-    Some(WindowInfo { hwnd: ctx.best_hwnd })
+    Some(WindowInfo { hwnd: chosen })
 }
 
 /// WGC 截窗口 + 帧内换算裁剪 + 倍率重采样。返回输出图 (宽, 高)。

@@ -6,12 +6,15 @@
 
 独立的 egui 桌面应用（中文名「编辑器补丁」）：给**星火编辑器**打补丁——把目标库**整库解密为裸露源码**、在库入口注入补丁插槽、解除使用限制，支持按库分组的可勾选补丁模块。通过宿主 [bgd_sce_tools](https://github.com/woaye168/bgd_sce_tools) 的「应用市场」安装分发（registry 在 [bgd_sce_plugins](https://github.com/woaye168/bgd_sce_plugins)），宿主启动时传 `--project-path <项目根>`。
 
+**0.5.4 起应用自持编辑器控制能力（MCP 与宿主解耦）**：`sce_app_editor-patch mcp` 是 AGENT 的唯一 stdio MCP 入口（恒定 8 工具：editor_start/editor_stop/get_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge）；同名 CLI 子命令 `editor start|stop`、`logs`、`capture` 供人类/脚本直接用。
+
 ## 技术栈
 
 - **语言**：Rust 2021
 - **UI**：eframe/egui 0.29（即时模式 GUI）
 - **序列化**：serde/serde_json
-- **CLI**：clap（`--project-path`）
+- **CLI**：clap（`--project-path`）+ 子命令（editor/logs/capture/mcp）
+- **截图**：windows-capture（WGC）+ image（倍率重采样/PNG）
 - **并发**：std::thread::scope 分块并行（整库解密/复制），无额外依赖
 
 ## 代码规范
@@ -23,8 +26,10 @@
 ```
 sce_app_editor-patch/
 ├── src/
-│   ├── main.rs            # UI（egui 三标签：内核/补丁/帮助）+ 进度条 + 入口
-│   ├── lib.rs             # 库入口（core 暴露为库目标，examples 复用内核实现）
+│   ├── main.rs            # UI（egui 三标签：内核/补丁/帮助）+ 进度条 + 入口 + CLI 分发
+│   ├── lib.rs             # 库入口（core/cli/mcp 暴露为库目标，examples 复用内核实现）
+│   ├── cli.rs             # CLI 子命令：editor start|stop / logs / capture（0.5.4）
+│   ├── mcp.rs             # stdio MCP 聚合服务（NDJSON；AGENT 唯一入口，0.5.4）
 │   └── core/
 │       ├── slot_inject.rs # 插槽注入/解锁变换（make_slots 与内核运行时注入共用，单一事实源）
 │       ├── mod.rs
@@ -34,7 +39,10 @@ sce_app_editor-patch/
 │       ├── backup.rs      # 整库备份（编辑器根 bgd_editor_patch/backup/<api>/<包_版本>/）
 │       ├── log.rs         # 日志（项目 .bgd/log/app_editor-patch-YYYY-MM-DD.log，按日期分文件）
 │       ├── kernel.rs      # 库登记（LIBS）/整库应用/slots复制/状态检查/还原（含测试）
-│       └── modules.rs     # 补丁模块注册（按库分组/默认勾选）/启停/框架入口重建
+│       ├── modules.rs     # 补丁模块注册（按库分组/默认勾选）/启停/框架入口重建
+│       ├── editor.rs      # 编辑器生命周期/日志/应用设置（editor_exe_name、最近项目）（0.5.4）
+│       ├── bridge_client.rs # bgd_mcp_bridge HTTP 客户端（port 文件 + 握手在线检测）（0.5.4）
+│       └── capture.rs     # 真后台游戏截图（WGC 截 WinUI 主窗口 + 视口矩形裁剪 + 倍率）（0.5.4）
 ├── patches/
 │   ├── modules.json              # 模块清单元数据（0.5.3 起外置：id/pkg/名称/描述/默认勾选/部署dll/注入项目根）
 │   └── <包名>/<模块id>/main.lua  # 内置补丁模块（不改库源码，编译期 include_str! 嵌入）
@@ -90,7 +98,7 @@ sce_app_editor-patch/
 - **模块元数据外置（0.5.3 起，F5）**：`patches/modules.json` 声明各模块 id/pkg/名称/描述/`default_enabled`/`deploy_bridge_dll`/`inject_project_root`（编译期嵌入）；调整默认勾选只改该文件。新增模块：`patches/<pkg>/<id>/` 放 lua + modules.json 登记 + `modules.rs module_files` 挂文件。
 - 模块声明 `default_enabled`：内核补丁**首次创建**补丁目录时自动启用（用户手动关闭后重新应用不会强开；编辑器升级换版本目录后按全新处理会再启用默认）。默认模块启用走完整 set_module 链路（含 dll 部署/项目路径注入）；单个失败不中断整体应用（记警告，如编辑器运行中锁定 dll）。
 - 模块按 `pkg` 归属库，UI 按库分组罗列；该库内核未应用时勾选禁用。
-- 现有模块：script/`hello`（示例）、xdeditor/`unwatch`（解除项目文件监听，**默认开启**；勾选时应用注入 `_project_root.lua`——项目目录监听器在 xdeditor 进程 file_monitor_window.lua，script 包拦截不到；0.5.3 起 F1：应用启动/刷新时自动比对并重写注入路径，切项目无需重新勾选）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；用官方事件桥 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)` 注册，不在入口模块 require menu_bar——详见库知识库 hooks.md）、xdeditor/`bgd_mcp_bridge`（MCP 桥，**默认开启**，0.5.3 起）。
+- 现有模块：script/`hello`（示例）、xdeditor/`unwatch`（解除项目文件监听，**默认开启**；勾选时应用注入 `_project_root.lua`——项目目录监听器在 xdeditor 进程 file_monitor_window.lua，script 包拦截不到；0.5.3 起 F1：应用启动/刷新时自动比对并重写注入路径，切项目无需重新勾选）、xdeditor/`menu_bgd`（帮助菜单入口，**默认开启**；用官方事件桥 `EDITOR.event_notify(EVENT.window_title_bar_register, ...)` 注册，不在入口模块 require menu_bar——详见库知识库 hooks.md）、xdeditor/`bgd_mcp_bridge`（MCP 桥，**默认开启**，0.5.3 起）、xdeditor/`pie_capture`（拍照按钮修复，**默认开启**，0.5.4 起；行为主体在 slots 覆盖的 ui/gameplay_in_editor_view.lua，由 make_pie_slot 生成；模块承载 `_exe_path.lua` 注入并在加载时写全局 `_G.BGD_CAPTURE_EXE`——包上下文 require 限制，不能用 run_lua 验证该 require）。
 
 ### 备份与日志（backup.rs / log.rs）
 
@@ -103,8 +111,9 @@ sce_app_editor-patch/
 - **版本号跟随插件版本（0.5.3 起，F2）**：csproj `Version` 固定 `0.0.0-dev` 占位，CI 按 tag `-p:Version` 注入（先于 cargo build）；sce.deps.json 登记键为 `bgd_mcp_bridge/<版本>`（Rust 侧 `env!("CARGO_PKG_VERSION")` 生成），deploy 自动替换旧版本键、undeploy 按前缀全清。
 - 编辑器内经 `SCE.Common.csharp_activate_window` 激活，隐藏窗口内跑 HttpListener（127.0.0.1:39177+）暴露 HTTP JSON-RPC 与 MCP `/mcp` 端点；C#↔Lua 双向走事件总线（`bgd_mcp_cmd`/`bgd_mcp_ack`/`bgd_mcp_event`）。
 - **0.5.0 起为 Gateway 架构**：tools/list 恒定 10 个元工具，全部能力进能力目录（`catalog.json` 构建期生成 + `annotations.json` 人工标注层，均编译期嵌入 dll）。能力通道：svc（DI 服务反射，服务级准入制）/datacore（IDataCore 手写封装）/cpp（静态基元方法）/cmd+lua（Lua 桥）/sys。安全分级 read/write/danger（danger 需 config.json `danger_allow` 放行），write/danger 调用写审计日志。
-- **0.5.3 新增 lua 能力**：`lua.publish_project`（danger；EDITOR.upload_map promise 通道，分钟级，调用方放大 timeout_ms）、`lua.get_game_view_rect`（read；PIE 视口控件 get_screen_rect 逻辑矩形，截图方案核心）与 `lua.capture_game`（read；引擎 snapshot 兜底，只截 3D 场景不含 UI）。Lua 桥支持**延迟 ack**（handler 返回 DEFERRED，异步回调里自行 send_ack）。MCP capture_game 终版 = get_game_view_rect + bgd_sce_tools WGC 显示器裁剪（纯游戏画面+游戏 UI）。机制研究见 [doc/research/publish-and-capture.md](doc/research/publish-and-capture.md)。
-- **编辑器外聚合入口在 bgd_sce_tools**（0.5.3 场景一）：`bgd_sce_tools mcp` stdio 服务承担启动/关闭编辑器、日志获取与在线透传，AI 只需配置这一个 MCP。
+- **0.5.3 新增 lua 能力**：`lua.publish_project`（danger；EDITOR.upload_map promise 通道，分钟级，调用方放大 timeout_ms）、`lua.get_game_view_rect`（read；PIE 视口控件 get_screen_rect 逻辑矩形，截图方案核心）与 `lua.capture_game`（read；引擎 snapshot 兜底，只截 3D 场景不含 UI）。Lua 桥支持**延迟 ack**（handler 返回 DEFERRED，异步回调里自行 send_ack）。机制研究见 [doc/research/publish-and-capture.md](doc/research/publish-and-capture.md)。
+- **编辑器外聚合入口在本应用**（0.5.4 起，自 bgd_sce_tools 迁入）：`sce_app_editor-patch mcp` stdio 服务承担启动/关闭编辑器、日志获取、游戏截图与在线透传，AI 只需配置这一个 MCP（command 为应用 exe 全路径，args `["mcp"]`）。
+- **capture_game 终版（0.5.4，真后台）**：lua 桥取 PIE 视口 get_screen_rect 逻辑矩形 → WGC 截 WinUI 主窗口（SDL 内容窗口直接呈现，截出黑图，不可直接截）→ 帧内等比裁剪（内容区底对齐）→ 倍率重采样。窗口最小化/隐藏时先离屏恢复（SHOWNOACTIVATE + 屏外坐标 + placement 还原），遮挡无需处理。详见 doc/requirements/0.5.4.md。
 - 编辑器升级后：重跑 `dotnet run --project csharp/make_catalog -- --project <项目根>` 重新生成 catalog.json（make_slots 同款约定；0.5.3 起支持 --project 推导宿主目录，也兼容显式 `<宿主目录> <api版本>`），再构建 dll。
 - 详见 [doc/research/csharp-module-injection.md](doc/research/csharp-module-injection.md) 与 [doc/research/mcp-integration-guide.md](doc/research/mcp-integration-guide.md)。
 

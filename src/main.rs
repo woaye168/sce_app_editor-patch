@@ -554,7 +554,7 @@ impl eframe::App for EditorPatchApp {
                 ui.label("项目：");
                 match &self.project_root {
                     Some(p) => {
-                        ui.monospace(p.display().to_string());
+                        ui.monospace(editor::to_slash(p));
                     }
                     None => {
                         ui.label("（未选择）");
@@ -668,7 +668,7 @@ impl EditorPatchApp {
             ui.monospace(&target.api_version);
             ui.separator();
             ui.label("编辑器目录：");
-            ui.monospace(target.editor_root.display().to_string());
+            ui.monospace(editor::to_slash(&target.editor_root));
         });
         ui.add_space(8.0);
 
@@ -735,7 +735,7 @@ impl EditorPatchApp {
             let data_dir = root.join("bgd_editor_patch");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(format!("备份目录：{}", data_dir.join("backup").display()));
+                ui.label(format!("备份目录：{}", editor::to_slash(&data_dir.join("backup"))));
                 if ui.button("打开").clicked() {
                     let _ = std::process::Command::new("explorer")
                         .arg(data_dir.join("backup"))
@@ -744,7 +744,7 @@ impl EditorPatchApp {
             });
         }
         ui.horizontal(|ui| {
-            ui.label(format!("日志文件：{}", log_path.display()));
+            ui.label(format!("日志文件：{}", editor::to_slash(&log_path)));
             if ui.button("打开").clicked() {
                 let _ = std::process::Command::new("explorer").arg(&log_path).spawn();
             }

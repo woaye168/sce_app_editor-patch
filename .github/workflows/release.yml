@@ -17,7 +17,9 @@ jobs:
           fetch-depth: 0 # 完整历史，用于归纳版本间提交
 
       # bgd_appsdk 是 git 依赖（私有仓库）：配置 token 后 cargo 即可直接拉取
+      # （contents:write 权限保证 GITHUB_TOKEN 对其他仓库也可读）
       - name: Configure git credentials for private deps
+        shell: pwsh
         run: git config --global url."https://x-access-token:${{ github.token }}@github.com/".insteadOf "https://github.com/"
 
       - name: Generate release notes

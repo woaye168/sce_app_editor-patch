@@ -81,6 +81,18 @@ jobs:
       - name: Build release
         run: cargo build --release
 
+      # CI 合成发布元数据 asset app-release.json（静态 app.json + 版本 + 版本说明；
+      # 宿主应用市场凭它展示版本/描述/版本说明，registry 无需随版本改动）
+      - name: Generate app-release.json
+        shell: pwsh
+        run: |
+          $meta = Get-Content app.json -Raw -Encoding utf8 | ConvertFrom-Json
+          $meta | Add-Member -NotePropertyName version -NotePropertyValue ("${{ github.ref_name }}".TrimStart('v'))
+          $meta | Add-Member -NotePropertyName release_notes -NotePropertyValue @'
+${{ steps.notes.outputs.body }}
+'@
+          $meta | ConvertTo-Json -Depth 5 | Set-Content app-release.json -Encoding utf8
+
       - name: Upload Release
         uses: softprops/action-gh-release@v2
         env:
@@ -93,3 +105,4 @@ jobs:
           prerelease: false
           files: |
             target/release/sce_app_editor-patch.exe
+            app-release.json

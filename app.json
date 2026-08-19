@@ -1,0 +1,8 @@
+{
+  "id": "editor-patch",
+  "name": "编辑器补丁",
+  "description": "给编辑器打补丁, 扩展原本功能, 包括 MCP控制等。",
+  "author": "BGD",
+  "asset_name": "sce_app_editor-patch.exe",
+  "default_auto_start": true
+}

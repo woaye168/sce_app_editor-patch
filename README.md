@@ -12,7 +12,7 @@
   - 每个库入口注入补丁插槽（`sce_app_editor-patch` 框架），并在库下创建补丁目录。
 - **补丁模块（按库分组，可勾选）**：
   - xdeditor / `MCP 桥（外部 AI 控制）`：在编辑器进程内注入并启动 C# 扩展（bgd_mcp_bridge.dll），于 127.0.0.1 暴露 HTTP JSON-RPC 与 MCP 服务，供外部 AI 调用编辑器命令（启动/停止调试、文件操作等）并拉取编辑器事件；勾选时自动部署 dll 并登记 sce.deps.json，取消勾选摘除，「还原补丁」整体恢复；
-  - xdeditor / `解除项目文件监听`：移除并拦截编辑器对项目目录的文件监听，外部（如 AI Agent）修改项目文件时不再弹出重载提示；勾选时应用把当前项目根注入模块（_project_root.lua）；
+  - xdeditor / `解除项目文件监听`：移除并拦截编辑器对项目目录的文件监听，外部（如 AI Agent）修改项目文件时不再弹出重载提示；项目根来自运行时共享常量 bgd_runtime.lua（宿主切换项目时自动更新）；
   - xdeditor / `帮助菜单 bgd_sce_tools 入口`（默认开启）：编辑器顶部菜单「帮助」下新增子菜单，点击打开仓库；
   - script / `示例补丁`：验证补丁链路。
 - **状态自检**：随时检测各库补丁状态；编辑器升级覆盖补丁后一键重新应用（已启用模块保留）。
@@ -69,4 +69,4 @@ cargo test              # 单元 + 集成测试（不碰真实编辑器文件）
 git tag v0.x.0 && git push origin v0.x.0
 ```
 
-CI 自动注入版本号、构建并上传 `sce_app_editor-patch.exe` 到 Release；随后在 [bgd_sce_plugins](https://github.com/woaye168/bgd_sce_plugins) 的 `registry.json` 中 bump `version`/`tag` 即可被应用市场发现（有新版时应用市场会显示「升级」按钮）。
+CI 自动注入版本号、构建并上传 `sce_app_editor-patch.exe` 与 `app-release.json`（CI 合成的发布元数据：版本/描述/版本说明）到 Release；应用市场经 [bgd_sce_appsdk](https://github.com/woaye168/bgd_sce_appsdk) 的极简 registry 发现本应用，发版即自动显示新版本（无需再改任何清单）。

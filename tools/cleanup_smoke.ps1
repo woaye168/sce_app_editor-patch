@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     清理 bgd_bridge_test 冒烟测试产物（0.4.0 验证后由用户本机手动执行）。
@@ -14,8 +14,10 @@
 #>
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    # 引擎运行根（version-<api> 与 Update/ 的上级），默认环境变量 SCE_ENGINE_ROOT，再默认本机路径
-    [string]$EngineRoot = $(if ($env:SCE_ENGINE_ROOT) { $env:SCE_ENGINE_ROOT } else { 'D:/sce_online' }),
+    # 引擎运行根（version-<api> 与 Update/ 的上级），必填或经环境变量 SCE_ENGINE_ROOT 提供
+    # （每台机器编辑器安装目录不同，禁止硬编码默认路径）
+    [Parameter(Mandatory = $false)]
+    [string]$EngineRoot = $(if ($env:SCE_ENGINE_ROOT) { $env:SCE_ENGINE_ROOT } else { throw '请通过 -EngineRoot 或环境变量 SCE_ENGINE_ROOT 指定引擎运行根' }),
     [string]$ApiVersion = '13',
     [string]$XdVersion = '160'
 )

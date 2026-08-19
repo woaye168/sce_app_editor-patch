@@ -103,7 +103,7 @@
       "aliases": ["file_exists", "文件存在"],
       "tags": ["文件"],
       "risk": "read",
-      "example": "{\"id\":\"svc.FileSystem.FileExists\",\"args\":{\"fileName\":\"D:/sce_online/test.txt\"}}"
+      "example": "{\"id\":\"svc.FileSystem.FileExists\",\"args\":{\"fileName\":\"D:/test/test.txt\"}}"
     },
     "svc.FileSystem.DirExists": {
       "description": "判断目录是否存在",
@@ -116,7 +116,7 @@
       "aliases": ["scan_dir", "list_files", "列目录"],
       "tags": ["文件", "目录"],
       "risk": "read",
-      "example": "{\"id\":\"svc.FileSystem.ScanDir\",\"args\":{\"pathName\":\"D:/sce_online\",\"filter\":\"*.*\",\"flags\":0,\"recursive\":false}}"
+      "example": "{\"id\":\"svc.FileSystem.ScanDir\",\"args\":{\"pathName\":\"D:/test\",\"filter\":\"*.*\",\"flags\":0,\"recursive\":false}}"
     },
     "svc.FileSystem.Copy": {
       "description": "复制文件",

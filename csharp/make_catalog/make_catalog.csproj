@@ -11,8 +11,9 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <RootNamespace>BgdMakeCatalog</RootNamespace>
     <AssemblyName>make_catalog</AssemblyName>
-    <!-- 宿主程序集目录：本地默认星火编辑器 version-13，可用 -p:SceHostDir=<目录> 覆盖 -->
-    <SceHostDir Condition="'$(SceHostDir)' == ''">D:/sce_online/version-13</SceHostDir>
+    <!-- 宿主程序集目录：命令行 -p:SceHostDir > 环境变量 SCE_HOST_DIR（无默认机器路径；
+         每台机器编辑器安装目录不同，禁止硬编码） -->
+    <SceHostDir Condition="'$(SceHostDir)' == ''">$(SCE_HOST_DIR)</SceHostDir>
   </PropertyGroup>
 
 </Project>

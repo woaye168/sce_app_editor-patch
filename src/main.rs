@@ -94,66 +94,19 @@ fn main() -> eframe::Result<()> {
         }
     });
 
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title(format!("{APP_NAME} v{APP_VERSION}"))
-            .with_inner_size([780.0, 660.0])
-            .with_min_inner_size([660.0, 520.0]),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        APP_NAME,
-        options,
-        Box::new(move |cc| {
-            setup_chinese_font(&cc.egui_ctx);
-            #[allow(unused_mut)]
-            let app = EditorPatchApp::new(project_path);
-            #[cfg(windows)]
-            if let Some(g) = single_guard {
-                // 看守线程（bgd_appsdk）：等待 唤起/退出/刷新 信号并 Win32 驱动主窗口
-                // （egui 隐藏时事件循环休眠，信号处理必须离开 UI 线程）
-                bgd_appsdk::watcher::spawn(g, args.background);
-            }
-            Ok(Box::new(app))
-        }),
-    )
-}
-
-/// 加载系统中文字体（微软雅黑），egui 默认字体不含中文
-fn setup_chinese_font(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    for candidate in ["C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/simhei.ttf"] {
-        if let Ok(data) = std::fs::read(candidate) {
-            fonts
-                .font_data
-                .insert("chinese".to_string(), egui::FontData::from_owned(data));
-            fonts
-                .families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(0, "chinese".to_string());
-            fonts
-                .families
-                .entry(egui::FontFamily::Monospace)
-                .or_default()
-                .push("chinese".to_string());
-            break;
-        }
+    #[cfg(windows)]
+    if let Some(g) = single_guard {
+        // 看守线程（bgd_appsdk）：等待 唤起/退出/刷新 信号并 Win32 驱动主窗口
+        // （egui 隐藏时事件循环休眠，信号处理必须离开 UI 线程）
+        bgd_appsdk::watcher::spawn(g, args.background);
     }
-    ctx.set_fonts(fonts);
-}
 
-#[derive(PartialEq, Clone, Copy)]
-enum Tab {
-    Kernel,
-    Patches,
-    Settings,
-    Help,
+    let app = EditorPatchApp::new(None);
+    let shell = bgd_appsdk::ui::AppShell::new(app, APP_VERSION, project_path);
+    shell.run([780.0, 660.0], [660.0, 520.0], args.background)
 }
 
 struct EditorPatchApp {
-    tab: Tab,
     /// 当前项目根
     project_root: Option<PathBuf>,
     /// 定位结果（编辑器根 + 各包目录）
@@ -182,7 +135,6 @@ struct EditorPatchApp {
 impl EditorPatchApp {
     fn new(project_root: Option<PathBuf>) -> Self {
         let mut app = Self {
-            tab: Tab::Kernel,
             project_root: None,
             target: None,
             locate_error: String::new(),
@@ -481,97 +433,68 @@ impl EditorPatchApp {
     }
 }
 
-impl eframe::App for EditorPatchApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 退出请求（看守线程 --quit 置位）：正常关闭（无托盘，X 关闭即退出）
-        #[cfg(windows)]
-        if bgd_appsdk::watcher::take_quit() {
-            self.log("INFO", "收到退出请求，应用退出");
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        }
+const TABS: &[bgd_appsdk::ui::ShellTab] = &[
+    bgd_appsdk::ui::ShellTab { id: "kernel", label: "内核" },
+    bgd_appsdk::ui::ShellTab { id: "patches", label: "补丁" },
+    bgd_appsdk::ui::ShellTab { id: "settings", label: "设置" },
+    bgd_appsdk::ui::ShellTab { id: "help", label: "帮助" },
+];
 
-        // 刷新请求（宿主 notify 切换项目）：重新加载最近项目
-        #[cfg(windows)]
-        if bgd_appsdk::watcher::take_refresh() {
-            if let Some(p) = editor::last_project_path() {
-                let changed = self.project_root.as_ref() != Some(&p);
-                if changed {
-                    self.log("INFO", &format!("收到项目切换通知，切换到: {}", editor::to_slash(&p)));
-                    self.set_project(p);
-                }
-            }
-        }
+impl bgd_appsdk::ui::ShellApp for EditorPatchApp {
+    fn app_title(&self) -> &'static str {
+        APP_NAME
+    }
 
-        // 周期唤醒（隐藏驻留时保持 update 触发，处理退出标志/重部署重试等）
-        ctx.request_repaint_after(std::time::Duration::from_millis(500));
+    fn tabs(&self) -> &[bgd_appsdk::ui::ShellTab] {
+        TABS
+    }
 
-        // bgd_mcp_bridge.dll 待重部署：每 5s 自动重试（编辑器关闭后自动补上）
+    fn ui_tab(&mut self, ui: &mut egui::Ui, tab: &str) {
+        // 周期任务（壳的 update 已每 500ms 唤醒）：重部署重试 + 进度条刷新
         if self.bridge_redeploy_pending
             && self.last_redeploy_retry.elapsed() >= std::time::Duration::from_secs(5)
         {
             self.last_redeploy_retry = std::time::Instant::now();
             self.auto_redeploy_bridge();
         }
+        let task_running = self.poll_task(ui.ctx());
 
-        let task_running = self.poll_task(ctx);
-
-        // 顶部：项目栏 + 选项卡
-        egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.label("项目：");
-                match &self.project_root {
-                    Some(p) => {
-                        ui.monospace(editor::to_slash(p));
-                    }
-                    None => {
-                        ui.label("（未选择）");
-                    }
-                }
-                if ui.button("选择项目…").clicked() {
-                    self.pick_project();
-                }
-            });
-            ui.add_space(4.0);
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.tab, Tab::Kernel, "内核");
-                ui.selectable_value(&mut self.tab, Tab::Patches, "补丁");
-                ui.selectable_value(&mut self.tab, Tab::Settings, "设置");
-                ui.selectable_value(&mut self.tab, Tab::Help, "帮助");
-            });
-        });
-
-        // 底部：状态栏
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
-            ui.add_space(4.0);
-            ui.label(&self.status);
-            ui.add_space(2.0);
-        });
-
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // 任务执行中：顶部进度条
-            if task_running {
-                if let Some(task) = &self.task {
-                    let g = task.lock().unwrap();
-                    let done = g.done.load(Ordering::Relaxed);
-                    let total = g.total.max(1);
-                    ui.add_space(4.0);
-                    ui.add(
-                        egui::ProgressBar::new(done as f32 / total as f32)
-                            .text(format!("{}（{}/{}）", g.phase, done, g.total)),
-                    );
-                    ui.add_space(4.0);
-                    ui.separator();
-                }
+        // 任务执行中：顶部进度条
+        if task_running {
+            if let Some(task) = &self.task {
+                let g = task.lock().unwrap();
+                let done = g.done.load(Ordering::Relaxed);
+                let total = g.total.max(1);
+                ui.add_space(4.0);
+                ui.add(
+                    egui::ProgressBar::new(done as f32 / total as f32)
+                        .text(format!("{}（{}/{}）", g.phase, done, g.total)),
+                );
+                ui.add_space(4.0);
+                ui.separator();
             }
-            match self.tab {
-                Tab::Kernel => self.ui_kernel(ui, task_running),
-                Tab::Patches => self.ui_patches(ui),
-                Tab::Settings => self.ui_settings(ui),
-                Tab::Help => Self::ui_help(ui),
+        }
+        match tab {
+            "kernel" => self.ui_kernel(ui, task_running),
+            "patches" => self.ui_patches(ui),
+            "settings" => self.ui_settings(ui),
+            "help" => Self::ui_help(ui),
+            _ => {}
+        }
+    }
+
+    fn on_project_changed(&mut self, project: Option<&std::path::Path>) {
+        if let Some(p) = project {
+            if locate::is_valid_project(p) {
+                self.set_project(p.to_path_buf());
+            } else {
+                self.status = format!("{} 不是有效的星火项目（缺少 project/map_settings.json）", p.display());
             }
-        });
+        }
+    }
+
+    fn status_text(&self) -> String {
+        self.status.clone()
     }
 }
 

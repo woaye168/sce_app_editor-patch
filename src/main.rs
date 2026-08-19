@@ -48,12 +48,14 @@ mod single_instance {
 
     pub struct Guard {
         pub show_event: HANDLE,
+        pub quit_event: HANDLE,
         _mutex: HANDLE,
     }
     impl Drop for Guard {
         fn drop(&mut self) {
             unsafe {
                 CloseHandle(self.show_event);
+                CloseHandle(self.quit_event);
                 CloseHandle(self._mutex);
             }
         }
@@ -82,14 +84,33 @@ mod single_instance {
                 return None;
             }
             let ev_name = wide("sce_app_editor-patch_show");
-            let ev = CreateEventW(std::ptr::null(), 0, 0, ev_name.as_ptr());
-            Some(Guard { show_event: ev, _mutex: mutex })
+            let show_ev = CreateEventW(std::ptr::null(), 0, 0, ev_name.as_ptr());
+            let quit_name = wide("sce_app_editor-patch_quit");
+            let quit_ev = CreateEventW(std::ptr::null(), 0, 0, quit_name.as_ptr());
+            Some(Guard { show_event: show_ev, quit_event: quit_ev, _mutex: mutex })
         }
     }
 
     /// 「显示窗口」信号是否已触发
     pub fn show_signaled(show_event: HANDLE) -> bool {
         unsafe { WaitForSingleObject(show_event, 0) == 0 }
+    }
+
+    /// 「退出」信号是否已触发
+    pub fn quit_signaled(quit_event: HANDLE) -> bool {
+        unsafe { WaitForSingleObject(quit_event, 0) == 0 }
+    }
+
+    /// 向已运行实例发送「退出」信号（宿主升级前优雅停止用）
+    pub fn signal_quit() {
+        unsafe {
+            let quit_name = wide("sce_app_editor-patch_quit");
+            let ev = CreateEventW(std::ptr::null(), 0, 0, quit_name.as_ptr());
+            if !ev.is_null() {
+                SetEvent(ev);
+                CloseHandle(ev);
+            }
+        }
     }
 }
 
@@ -109,6 +130,13 @@ fn main() -> eframe::Result<()> {
             }
             _ => {}
         }
+    }
+
+    // --quit：向已运行实例发「退出」信号后退出（宿主升级前优雅停止用，0.5.7）
+    #[cfg(windows)]
+    if raw.iter().any(|a| a == "--quit") {
+        single_instance::signal_quit();
+        return Ok(());
     }
 
     // GUI 路径单实例（0.5.6）：已运行则只发「唤起窗口」信号并退出（静默自启下点「打开」= 唤出窗口）
@@ -488,7 +516,7 @@ impl EditorPatchApp {
 
 impl eframe::App for EditorPatchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 单实例唤起信号：重复启动的进程请求我们把窗口唤到前台
+        // 单实例唤起/退出信号
         #[cfg(windows)]
         if let Some(g) = &self.single_guard {
             if single_instance::show_signaled(g.show_event) {
@@ -497,7 +525,13 @@ impl eframe::App for EditorPatchApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                 self.log("INFO", "检测到重复启动，已唤起窗口");
             }
+            if single_instance::quit_signaled(g.quit_event) {
+                self.log("INFO", "收到退出信号（宿主升级/停止请求），应用退出");
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
+        // 隐藏驻留时 egui 无事件不触发 update——周期唤醒保证信号轮询（2 次/秒，开销可忽略）
+        ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
         let task_running = self.poll_task(ctx);
 

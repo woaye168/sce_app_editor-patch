@@ -61,9 +61,23 @@ pub fn run(args: &[String]) -> i32 {
             }
         }
         "logs" => {
-            let source = rest.first().cloned().unwrap_or_else(|| "all".to_string());
-            let tail: usize = rest.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-            resolve_project(rest).and_then(|p| editor::get_logs(&p, &source, tail))
+            // 位置参数（剔除 --flag 及其值）依次为 source、行数
+            let mut positional: Vec<&String> = Vec::new();
+            let mut skip_next = false;
+            for a in rest {
+                if skip_next {
+                    skip_next = false;
+                    continue;
+                }
+                if a.starts_with("--") {
+                    skip_next = true; // --project-path/--log 等带值
+                    continue;
+                }
+                positional.push(a);
+            }
+            let source = positional.first().map(|s| s.as_str()).unwrap_or("");
+            let tail: usize = positional.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            resolve_project(rest).and_then(|p| editor::get_game_logs(&p, &source, tail))
         }
         "capture" => {
             let ratio: f64 = parse_flag(rest, "--ratio")

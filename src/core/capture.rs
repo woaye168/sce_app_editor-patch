@@ -96,7 +96,7 @@ pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, op
     }
 
     Ok(json!({
-        "path": path.display().to_string(),
+        "path": super::editor::to_slash(&path),
         "width": cw,
         "height": ch,
         "ratio": ratio,

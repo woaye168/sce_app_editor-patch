@@ -59,14 +59,15 @@ fn tool_editor_stop(args: &Value) -> Result<Value> {
     editor::editor_stop(&project).map_err(|e| anyhow!(e))
 }
 
-fn tool_get_logs(args: &Value) -> Result<Value> {
-    let project = resolve_project(Some(args))?;
-    let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("all");
+fn tool_get_game_logs(args: &Value) -> Result<Value> {
+    // 0.5.6：参数仅 source/tail_lines；项目走自动解析链（最近项目，失败明确报错）
+    let project = resolve_project(None)?;
+    let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("");
     let tail = args
         .get("tail_lines")
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as usize;
-    editor::get_logs(&project, source, tail).map_err(|e| anyhow!(e))
+    editor::get_game_logs(&project, source, tail).map_err(|e| anyhow!(e))
 }
 
 fn tool_start_debug(args: &Value) -> Result<Value> {
@@ -128,9 +129,9 @@ fn tools_list() -> Value {
             {"name":"editor_stop","description":"关闭星火编辑器（直接结束进程，不做优雅退出）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
             {"name":"start_debug","description":"启动调试（默认 restart_last_debug：跳过编辑器编译构建、载入最新 lua；无上一次调试版本自动回退全量；full=true 强制全量）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"full":{"type":"boolean","default":false}}}},
             {"name":"stop_debug","description":"停止调试","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
-            {"name":"get_logs","description":"获取最新日志文件路径与信息（大小/创建/修改时间/行数）。默认不返回内容（tail_lines=0）防爆上下文；需要内容时传 tail_lines 或按路径自行读取","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"source":{"type":"string","enum":["client","server","bridge","all"],"default":"all"},"tail_lines":{"type":"integer","default":0}}}},
+            {"name":"get_game_logs","description":"获取游戏日志/编辑器日志/MCP桥日志的最新文件信息（路径/大小/创建时间/修改时间/行数/说明）。tail_lines=0（默认）只返回文件信息不返回内容防爆上下文，需要内容时传 tail_lines 或按路径自行读取。离线可用（不要求编辑器在线）。source 取值：game_client/game_server/service_core/xdeditor_client/bridge_main/bridge_audit，或聚合前缀（如 game 命中 game_client+game_server、bridge 命中 bridge_main+bridge_audit），或 all；缺省 game","inputSchema":{"type":"object","properties":{"source":{"type":"string","default":"game","description":"日志源 key 或聚合前缀，缺省 game"},"tail_lines":{"type":"integer","default":0,"description":"返回末尾行数，0=只返回文件信息"}}}},
             {"name":"publish_project","description":"发布项目到创作者中心（分钟级耗时；需在桥 config.json danger_allow 放行 lua.publish_project）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"timeout_ms":{"type":"integer","default":600000}}}},
-            {"name":"capture_game","description":"截取调试中的游戏画面（纯游戏画面+游戏 UI，不含编辑器界面；后台遮挡可截，窗口最小化不行），返回 png 路径，用 Read 查看。ratio 输出倍率（0.5/1/2/3/4）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"ratio":{"type":"number","default":1}}}},
+            {"name":"capture_game","description":"截取调试中的游戏画面/游戏截图（纯游戏画面+游戏 UI，不含编辑器界面；编辑器被遮挡/最小化均可后台截取），返回 png 路径，用 Read 查看。ratio 输出倍率（0.5/1/2/3/4）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"ratio":{"type":"number","default":1}}}},
             {"name":"get_status","description":"获取编辑器状态（地图路径/调试中/弹窗抑制）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}}
         ]
     })
@@ -142,7 +143,7 @@ fn call_tool(name: &str, args: &Value) -> Result<Value> {
         "editor_stop" => tool_editor_stop(args),
         "start_debug" => tool_start_debug(args),
         "stop_debug" => tool_stop_debug(args),
-        "get_logs" => tool_get_logs(args),
+        "get_game_logs" => tool_get_game_logs(args),
         "publish_project" => tool_publish_project(args),
         "capture_game" => tool_capture_game(args),
         "get_status" => tool_get_status(args),

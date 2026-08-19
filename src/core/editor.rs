@@ -225,46 +225,70 @@ fn find_editor_pid(exe_path: &Path) -> Option<u32> {
     None
 }
 
-// ---------------------------------------------------------------- get_logs
+// ---------------------------------------------------------------- get_game_logs
 
-/// 日志源定义：(源名, 子目录, 文件前缀) —— 每类取最新一个文件
-const LOG_SOURCES: &[(&str, &str, &str)] = &[
-    ("client", "lua", "lua-game-"),
-    ("server_core", "server", "core-game-server-"),
-    ("server_lua", "server", "lua-game-server-"),
-    ("bridge_main", "bgd_csharp", "bgd_csharp-"),
-    ("bridge_audit", "bgd_csharp", "audit-"),
+/// 日志源定义：(key, 子目录, 文件前缀, 说明) —— 每类取最新一个文件（0.5.6 起带 desc 说明）
+const LOG_SOURCES: &[(&str, &str, &str, &str)] = &[
+    ("bridge_audit", "bgd_csharp", "audit-", "MCP桥审计日志（编辑器补丁 bgd_mcp_bridge 的 write/danger 能力调用审计）"),
+    ("bridge_main", "bgd_csharp", "bgd_csharp-", "MCP桥入口日志（编辑器补丁 bgd_mcp_bridge 服务启动/请求处理日志）"),
+    ("xdeditor_client", "lua", "lua-editor-", "编辑器日志（星火编辑器操作动作及运行日志）"),
+    ("game_client", "lua", "lua-game-", "游戏客户端日志（调试游戏后产生）"),
+    ("service_core", "server", "core-game-server-", "服务器底层日志（游戏服务端底层框架日志）"),
+    ("game_server", "server", "lua-game-server-", "游戏服务端日志（游戏服务端自身代码日志）"),
 ];
 
-/// 获取日志（离线可用；默认只返回文件路径与信息，tail_lines>0 才带内容）
-pub fn get_logs(project_root: &Path, source: &str, tail_lines: usize) -> Result<Value, String> {
+/// 对外输出路径统一正斜杠（0.5.6 R2）
+pub fn to_slash(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
+/// 获取游戏日志（离线可用；默认只返回文件路径与信息，tail_lines>0 才带内容）。
+/// source 取值：具体 key（见 LOG_SOURCES）/ 动态聚合前缀（如 bridge 命中全部 bridge_*）/
+/// all / 缺省 game（命中 game_client + game_server）。
+pub fn get_game_logs(project_root: &Path, source: &str, tail_lines: usize) -> Result<Value, String> {
     let target = locate::locate(project_root)?;
     let logs_root = target.engine_root().join("logs");
 
+    let source = if source.trim().is_empty() { "game" } else { source.trim() };
+    // 匹配规则：all=全部；精确 key；否则动态聚合（key 以 `source_` 为前缀）
+    let matched: Vec<&(&str, &str, &str, &str)> = LOG_SOURCES
+        .iter()
+        .filter(|(key, _, _, _)| {
+            source == "all" || *key == source || key.starts_with(&format!("{source}_"))
+        })
+        .collect();
+    if matched.is_empty() {
+        let keys: Vec<&str> = LOG_SOURCES.iter().map(|(k, _, _, _)| *k).collect();
+        return Err(format!(
+            "source '{source}' 未匹配到任何日志项（可用 key：{}；也可用前缀聚合如 bridge/game、或 all）",
+            keys.join(" / ")
+        ));
+    }
+
     let mut out = serde_json::Map::new();
-    for (name, sub, prefix) in LOG_SOURCES {
-        let group = name.split('_').next().unwrap_or("");
-        if source != "all" && source != group {
-            continue;
-        }
+    for (key, sub, prefix, desc) in matched {
         let dir = logs_root.join(sub);
         match latest_file(&dir, prefix) {
             Some(p) => {
-                out.insert(name.to_string(), file_info(&p, tail_lines));
+                out.insert(key.to_string(), file_info(&p, desc, tail_lines));
             }
             None => {
                 out.insert(
-                    name.to_string(),
-                    json!({ "path": Value::Null, "note": format!("{} 下无 {prefix}*.log（未产生过该类日志）", dir.display()) }),
+                    key.to_string(),
+                    json!({
+                        "desc": desc,
+                        "path": Value::Null,
+                        "note": format!("{} 下无 {prefix}*.log（未产生过该类日志）", to_slash(&dir)),
+                    }),
                 );
             }
         }
     }
-    Ok(json!({ "logs_root": logs_root.display().to_string(), "logs": out }))
+    Ok(json!({ "logs_root": to_slash(&logs_root), "logs": out }))
 }
 
 /// 单个日志文件信息
-fn file_info(path: &Path, tail_lines: usize) -> Value {
+fn file_info(path: &Path, desc: &str, tail_lines: usize) -> Value {
     let meta = std::fs::metadata(path).ok();
     let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
     let to_local = |t: Option<std::time::SystemTime>| -> Value {
@@ -289,7 +313,8 @@ fn file_info(path: &Path, tail_lines: usize) -> Value {
     let lines = count_lines(path).unwrap_or(0);
 
     let mut info = json!({
-        "path": path.display().to_string(),
+        "desc": desc,
+        "path": to_slash(path),
         "size": size,
         "created": to_local(created),
         "modified": to_local(modified),

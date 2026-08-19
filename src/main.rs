@@ -33,6 +33,64 @@ struct Args {
     /// 项目路径（星火编辑器项目根，含 project/map_settings.json）
     #[arg(long)]
     project_path: Option<String>,
+    /// 静默自启形态：不显示主窗口，驻留后台（宿主静默自启时透传）
+    #[arg(long)]
+    background: bool,
+}
+
+/// 应用级单实例（0.5.6）：重复启动只唤起已运行实例的窗口。
+/// 机制：命名互斥体判活 + 命名事件作「显示窗口」信号；CLI 子命令（mcp/editor/logs/capture）
+/// 是独立短进程，不受单实例限制。
+#[cfg(windows)]
+mod single_instance {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
+    use windows_sys::Win32::System::Threading::{CreateEventW, CreateMutexW, SetEvent, WaitForSingleObject};
+
+    pub struct Guard {
+        pub show_event: HANDLE,
+        _mutex: HANDLE,
+    }
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            unsafe {
+                CloseHandle(self.show_event);
+                CloseHandle(self._mutex);
+            }
+        }
+    }
+
+    fn wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0)).collect()
+    }
+
+    /// 获取单实例守卫；已存在实例时发送「显示窗口」信号并返回 None（调用方应退出）
+    pub fn acquire() -> Option<Guard> {
+        unsafe {
+            let name = wide("sce_app_editor-patch_single");
+            let mutex = CreateMutexW(std::ptr::null(), 1, name.as_ptr());
+            if mutex.is_null() {
+                return None;
+            }
+            if GetLastError() == ERROR_ALREADY_EXISTS {
+                let ev_name = wide("sce_app_editor-patch_show");
+                let ev = CreateEventW(std::ptr::null(), 0, 0, ev_name.as_ptr());
+                if !ev.is_null() {
+                    SetEvent(ev);
+                    CloseHandle(ev);
+                }
+                CloseHandle(mutex);
+                return None;
+            }
+            let ev_name = wide("sce_app_editor-patch_show");
+            let ev = CreateEventW(std::ptr::null(), 0, 0, ev_name.as_ptr());
+            Some(Guard { show_event: ev, _mutex: mutex })
+        }
+    }
+
+    /// 「显示窗口」信号是否已触发
+    pub fn show_signaled(show_event: HANDLE) -> bool {
+        unsafe { WaitForSingleObject(show_event, 0) == 0 }
+    }
 }
 
 fn main() -> eframe::Result<()> {
@@ -53,6 +111,13 @@ fn main() -> eframe::Result<()> {
         }
     }
 
+    // GUI 路径单实例（0.5.6）：已运行则只发「唤起窗口」信号并退出（静默自启下点「打开」= 唤出窗口）
+    #[cfg(windows)]
+    let single_guard = match single_instance::acquire() {
+        Some(g) => Some(g),
+        None => return Ok(()),
+    };
+
     let args = Args::parse();
 
     // 项目路径：优先 --project-path，否则启动后由用户在界面选择
@@ -69,7 +134,9 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title(format!("{APP_NAME} v{APP_VERSION}"))
             .with_inner_size([780.0, 660.0])
-            .with_min_inner_size([660.0, 520.0]),
+            .with_min_inner_size([660.0, 520.0])
+            // --background（宿主静默自启）：不显示主窗口，驻留后台等唤起信号
+            .with_visible(!args.background),
         ..Default::default()
     };
 
@@ -78,7 +145,13 @@ fn main() -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             setup_chinese_font(&cc.egui_ctx);
-            Ok(Box::new(EditorPatchApp::new(project_path)))
+            #[allow(unused_mut)]
+            let mut app = EditorPatchApp::new(project_path);
+            #[cfg(windows)]
+            {
+                app.single_guard = single_guard;
+            }
+            Ok(Box::new(app))
         }),
     )
 }
@@ -136,6 +209,9 @@ struct EditorPatchApp {
     mcp_port_input: String,
     /// 编辑器 exe 名配置（文本框，默认 星火编辑器.exe）
     exe_name_input: String,
+    /// 单实例守卫（GUI 驻留期间持有；轮询「唤起窗口」信号）
+    #[cfg(windows)]
+    single_guard: Option<single_instance::Guard>,
 }
 
 impl EditorPatchApp {
@@ -152,6 +228,8 @@ impl EditorPatchApp {
             status: String::new(),
             mcp_port_input: String::new(),
             exe_name_input: String::new(),
+            #[cfg(windows)]
+            single_guard: None,
         };
         if let Some(root) = project_root {
             app.set_project(root);
@@ -410,6 +488,17 @@ impl EditorPatchApp {
 
 impl eframe::App for EditorPatchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // 单实例唤起信号：重复启动的进程请求我们把窗口唤到前台
+        #[cfg(windows)]
+        if let Some(g) = &self.single_guard {
+            if single_instance::show_signaled(g.show_event) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                self.log("INFO", "检测到重复启动，已唤起窗口");
+            }
+        }
+
         let task_running = self.poll_task(ctx);
 
         // 顶部：项目栏 + 选项卡
@@ -489,6 +578,26 @@ impl EditorPatchApp {
     }
 
     fn ui_kernel(&mut self, ui: &mut egui::Ui, task_running: bool) {
+        // MCP 配置复制（不依赖项目定位，置顶常显）
+        ui.horizontal(|ui| {
+            ui.label("AI 客户端 MCP 入口：");
+            if ui.button("复制 MCP 配置").clicked() {
+                let exe = std::env::current_exe()
+                    .map(|p| p.display().to_string().replace('\\', "/"))
+                    .unwrap_or_else(|_| "sce_app_editor-patch.exe".to_string());
+                let json = format!(
+                    "{{ \"mcpServers\": {{ \"bgd-sce\": {{ \"command\": \"{exe}\", \"args\": [\"mcp\"] }} }} }}"
+                );
+                ui.ctx().output_mut(|o| o.copied_text = json);
+                self.status = "MCP 配置已复制到剪贴板（粘贴到 AI 客户端的 MCP 设置即可）".to_string();
+            }
+        });
+        ui.add_space(2.0);
+        ui.weak("AGENT 只需配置这一个 stdio MCP（编辑器控制/调试/日志/截图/发布全链路）。");
+        ui.add_space(6.0);
+        ui.separator();
+        ui.add_space(6.0);
+
         if self.ui_need_project(ui) {
             return;
         }

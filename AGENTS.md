@@ -6,7 +6,7 @@
 
 独立的 egui 桌面应用（中文名「编辑器补丁」）：给**星火编辑器**打补丁——把目标库**整库解密为裸露源码**、在库入口注入补丁插槽、解除使用限制，支持按库分组的可勾选补丁模块。通过宿主 [bgd_sce_tools](https://github.com/woaye168/bgd_sce_tools) 的「应用市场」安装分发（registry 在 [bgd_sce_plugins](https://github.com/woaye168/bgd_sce_plugins)），宿主启动时传 `--project-path <项目根>`。
 
-**0.5.4 起应用自持编辑器控制能力（MCP 与宿主解耦）**：`sce_app_editor-patch mcp` 是 AGENT 的唯一 stdio MCP 入口（恒定 8 工具：editor_start/editor_stop/get_game_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge）；同名 CLI 子命令 `editor start|stop`、`logs`、`capture` 供人类/脚本直接用。**0.5.6 细节**：get_game_logs 六日志源带 desc（bridge_audit/bridge_main/xdeditor_client/game_client/service_core/game_server），source 动态前缀聚合（缺省 game），无 project_path 参数；输出路径统一正斜杠；应用单实例（GUI 重复启动只唤起窗口）+ `--background` 静默驻留；内核页有「复制 MCP 配置」按钮。**0.5.7**：`--quit` 信号（宿主升级前优雅停止；隐藏驻留时 update 靠 500ms request_repaint_after 周期唤醒轮询信号）。
+**0.5.4 起应用自持编辑器控制能力（MCP 与宿主解耦）**：`sce_app_editor-patch mcp` 是 AGENT 的唯一 stdio MCP 入口（恒定 8 工具：editor_start/editor_stop/get_game_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge）；同名 CLI 子命令 `editor start|stop`、`logs`、`capture` 供人类/脚本直接用。**0.5.6 细节**：get_game_logs 六日志源带 desc（bridge_audit/bridge_main/xdeditor_client/game_client/service_core/game_server），source 动态前缀聚合（缺省 game），无 project_path 参数；输出路径统一正斜杠；应用单实例（GUI 重复启动只唤起窗口）+ `--background` 静默驻留；内核页有「复制 MCP 配置」按钮。**0.5.7**：`--quit` 信号（宿主升级前优雅停止；隐藏驻留时 update 靠 500ms request_repaint_after 周期唤醒轮询信号）。**0.5.8**：refresh 自同步增加「模块部署文件同步」（`modules::sync_module_files`——已启用模块的 lua 按嵌 exe 内容比对重写），应用市场升级后模块自动更新（dll 由 auto_redeploy 覆盖；编辑器内运行时升级仍需重启编辑器，状态栏提示）。
 
 ## 技术栈
 

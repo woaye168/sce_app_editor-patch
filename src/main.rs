@@ -327,16 +327,14 @@ impl EditorPatchApp {
         }
     }
 
-    /// F1：项目切换后自动刷新 inject_project_root 模块注入的项目路径。
-    /// 场景：bgd_sce_tools 切换项目后重开本应用，UI 已是新项目，但编辑器库里
-    /// unwatch 的 _project_root.lua 还是旧路径（旧逻辑需取消再勾选才刷新）。
+    /// 已启用模块的自同步（refresh 时执行）：
+    /// - F1 项目切换后刷新 inject_project_root 模块注入的项目路径；
+    /// - 0.5.7 应用升级后按嵌 exe 内容刷新模块部署文件（sync_module_files）；
+    /// - inject_exe_path 模块的 exe 路径刷新。
     fn sync_injected_project_roots(&mut self) {
         let Some(root) = self.project_root.clone() else { return };
         let Some(target) = &self.target else { return };
         for m in &self.modules {
-            if !m.inject_project_root && !m.inject_exe_path {
-                continue;
-            }
             let enabled = self
                 .enabled
                 .get(m.pkg.as_str())
@@ -365,6 +363,20 @@ impl EditorPatchApp {
                 Ok(false) => {}
                 Err(e) => {
                     self.log("ERROR", &format!("模块[{}]项目路径同步失败: {e}", m.id));
+                }
+            }
+            // 0.5.7：应用升级后自动更新已启用模块的部署文件（嵌 exe 内容为准）
+            match modules::sync_module_files(&lib_root, m) {
+                Ok(true) => {
+                    self.log("INFO", &format!("模块[{}]部署文件已自动更新（重启星火编辑器后生效）", m.id));
+                    self.status = format!(
+                        "模块「{}」已随应用升级自动更新（重启星火编辑器后生效）",
+                        m.name
+                    );
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    self.log("ERROR", &format!("模块[{}]部署文件同步失败: {e}", m.id));
                 }
             }
             match modules::sync_exe_path(&lib_root, m) {

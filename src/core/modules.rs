@@ -199,6 +199,26 @@ pub fn sync_project_root(
     sync_injected_file(&file, &project_root.to_string_lossy().replace('\\', "/"))
 }
 
+/// 同步已启用模块的部署文件（0.5.7：应用升级后自动更新模块内容）。
+/// 逐文件比对嵌入内容与部署内容，不一致则原子重写；注入文件（_project_root/_exe_path）
+/// 由各自 sync 处理，不在此列。返回是否有文件被重写。
+pub fn sync_module_files(lib_require_root: &Path, module: &PatchModule) -> Result<bool, String> {
+    let dir = patch_dir(lib_require_root).join(&module.id);
+    if !dir.is_dir() {
+        return Ok(false); // 未启用
+    }
+    let mut changed = false;
+    for (name, content) in module.files {
+        let file = dir.join(name);
+        let deployed = fs::read(&file).unwrap_or_default();
+        if deployed != content.as_bytes() {
+            crypto::write_atomic(&file, content.as_bytes())?;
+            changed = true;
+        }
+    }
+    Ok(changed)
+}
+
 /// 同步注入的 exe 路径（应用位置变化后自动刷新；`_exe_path.lua`）
 pub fn sync_exe_path(lib_require_root: &Path, module: &PatchModule) -> Result<bool, String> {
     if !module.inject_exe_path {
@@ -329,4 +349,50 @@ pub fn regenerate_entry(lib_require_root: &Path) -> Result<(), String> {
     );
 
     crypto::write_atomic(&dir.join("main.lua"), text.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_module<'a>(files: &'static [(&'static str, &'static str)]) -> PatchModule {
+        PatchModule {
+            id: "testmod".into(),
+            pkg: "xdeditor".into(),
+            name: "测试模块".into(),
+            description: String::new(),
+            default_enabled: false,
+            files,
+            deploy_bridge_dll: false,
+            inject_project_root: false,
+            inject_exe_path: false,
+        }
+    }
+
+    /// 0.5.7：升级后已启用模块的部署文件按嵌入内容自动刷新
+    #[test]
+    fn test_sync_module_files() {
+        let dir = std::env::temp_dir().join(format!("bgd_sync_mod_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let lib_root = dir.join("lib");
+        let mod_dir = lib_root.join("sce_app_editor-patch").join("testmod");
+        fs::create_dir_all(&mod_dir).unwrap();
+        // 已部署旧版内容（v1），嵌入内容已是 v2
+        fs::write(mod_dir.join("main.lua"), "-- v1 old").unwrap();
+        static FILES: &[(&str, &str)] = &[("main.lua", "-- v2 new")];
+        let m = test_module(FILES);
+
+        // 未启用（目录不存在）→ false
+        let missing_root = dir.join("missing");
+        assert!(!sync_module_files(&missing_root, &m).unwrap());
+
+        // 内容不一致 → 重写并返回 true
+        assert!(sync_module_files(&lib_root, &m).unwrap());
+        assert_eq!(fs::read_to_string(mod_dir.join("main.lua")).unwrap(), "-- v2 new");
+
+        // 已一致 → false 不再写
+        assert!(!sync_module_files(&lib_root, &m).unwrap());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

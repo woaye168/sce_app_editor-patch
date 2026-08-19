@@ -51,6 +51,8 @@ mod single_instance {
         pub quit_event: HANDLE,
         _mutex: HANDLE,
     }
+    // HANDLE 是内核对象句柄（值语义），跨线程 WaitForSingleObject 安全
+    unsafe impl Send for Guard {}
     impl Drop for Guard {
         fn drop(&mut self) {
             unsafe {
@@ -91,14 +93,49 @@ mod single_instance {
         }
     }
 
-    /// 「显示窗口」信号是否已触发
-    pub fn show_signaled(show_event: HANDLE) -> bool {
-        unsafe { WaitForSingleObject(show_event, 0) == 0 }
+    /// 后台线程阻塞等待信号（毫秒超时轮询，供看守线程用）
+    pub fn wait_show(show_event: HANDLE, ms: u32) -> bool {
+        unsafe { WaitForSingleObject(show_event, ms) == 0 }
     }
 
-    /// 「退出」信号是否已触发
-    pub fn quit_signaled(quit_event: HANDLE) -> bool {
-        unsafe { WaitForSingleObject(quit_event, 0) == 0 }
+    /// 后台线程阻塞等待退出信号
+    pub fn wait_quit(quit_event: HANDLE, ms: u32) -> bool {
+        unsafe { WaitForSingleObject(quit_event, ms) == 0 }
+    }
+
+    /// 精确获取本进程主窗口（PID 匹配 + 标题非空；egui 主窗口有标题，
+    /// 托盘/Winit 辅助窗口无标题——不会误抓其他进程或辅助窗口）
+    pub fn find_current_process_window() -> HANDLE {
+        use windows_sys::Win32::Foundation::{HWND, LPARAM};
+        use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            EnumWindows, GetWindowTextW, GetWindowThreadProcessId,
+        };
+        struct Ctx {
+            pid: u32,
+            found: HWND,
+        }
+        unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> i32 {
+            let ctx = &mut *(lparam as *mut Ctx);
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(hwnd, &mut pid);
+            if pid == ctx.pid {
+                let mut t = [0u16; 16];
+                if GetWindowTextW(hwnd, t.as_mut_ptr(), t.len() as i32) > 0 {
+                    ctx.found = hwnd;
+                    return 0; // 找到即停
+                }
+            }
+            1
+        }
+        let mut ctx = Ctx {
+            pid: unsafe { GetCurrentProcessId() },
+            found: std::ptr::null_mut(),
+        };
+        unsafe {
+            EnumWindows(Some(cb), &mut ctx as *mut Ctx as LPARAM);
+        }
+        ctx.found
     }
 
     /// 向已运行实例发送「退出」信号（宿主升级前优雅停止用）
@@ -115,6 +152,14 @@ mod single_instance {
 }
 
 fn main() -> eframe::Result<()> {
+    // panic 落盘（GUI 是 windows 子系统，崩溃默认无任何输出）
+    std::panic::set_hook(Box::new(|info| {
+        let _ = std::fs::write(
+            "C:/Users/woaye/AppData/Local/Temp/ep_panic.txt",
+            format!("{info}"),
+        );
+    }));
+
     // CLI 子命令（0.5.4 起：编辑器控制能力随应用自持）：editor/logs/capture/mcp
     let raw: Vec<String> = std::env::args().skip(1).collect();
     if let Some(first) = raw.first().map(|s| s.as_str()) {
@@ -162,9 +207,7 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_title(format!("{APP_NAME} v{APP_VERSION}"))
             .with_inner_size([780.0, 660.0])
-            .with_min_inner_size([660.0, 520.0])
-            // --background（宿主静默自启）：不显示主窗口，驻留后台等唤起信号
-            .with_visible(!args.background),
+            .with_min_inner_size([660.0, 520.0]),
         ..Default::default()
     };
 
@@ -175,13 +218,125 @@ fn main() -> eframe::Result<()> {
             setup_chinese_font(&cc.egui_ctx);
             #[allow(unused_mut)]
             let mut app = EditorPatchApp::new(project_path);
+            app.tray = create_tray();
             #[cfg(windows)]
-            {
-                app.single_guard = single_guard;
+            if let Some(g) = single_guard {
+                // 看守线程：等待 唤起/退出/托盘 信号，Win32 驱动主窗口 + 置退出标志。
+                // 关键：egui 不知道窗口被 Win32 隐藏，事件循环照常运行，update 持续触发——
+                // 唤起直接 Win32 ShowWindow（前台激活限制下也可靠），退出走 QUIT 标志由
+                // 主线程 update 显式 Drop 托盘（防幽灵图标）后正常关闭。
+                // guard 移入线程持有（Drop 会释放单实例互斥体）。
+                use windows_sys::Win32::Foundation::HWND;
+                use windows_sys::Win32::UI::WindowsAndMessaging::{
+                    SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW,
+                };
+                let background = args.background;
+                let (show_id, quit_id) = app
+                    .tray
+                    .as_ref()
+                    .map(|t| (t.show_id.clone(), t.quit_id.clone()))
+                    .unwrap_or_default();
+                std::thread::spawn(move || {
+                    let _guard = g;
+                    let mut hwnd: HWND = std::ptr::null_mut();
+                    // 轮询等待主窗口创建完成
+                    for _ in 0..50 {
+                        hwnd = single_instance::find_current_process_window();
+                        if !hwnd.is_null() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    // 静默自启：窗口创建后立刻 Win32 隐藏（egui 的 with_visible(false) 起步不可靠）
+                    if background && !hwnd.is_null() {
+                        unsafe {
+                            ShowWindow(hwnd, SW_HIDE);
+                        }
+                    }
+                    let show = |hwnd: HWND| unsafe {
+                        if !hwnd.is_null() {
+                            ShowWindow(hwnd, SW_RESTORE);
+                            ShowWindow(hwnd, SW_SHOW);
+                            SetForegroundWindow(hwnd);
+                        }
+                    };
+                    loop {
+                        if single_instance::wait_show(_guard.show_event, 200) {
+                            show(hwnd);
+                        }
+                        // 托盘事件（QQ/微信式）：左键/「显示窗口」唤出，「退出」真正退出
+                        while let Ok(ev) = tray_icon::TrayIconEvent::receiver().try_recv() {
+                            if let tray_icon::TrayIconEvent::Click {
+                                button: tray_icon::MouseButton::Left,
+                                button_state: tray_icon::MouseButtonState::Up,
+                                ..
+                            } = ev
+                            {
+                                show(hwnd);
+                            }
+                        }
+                        let mut quit = single_instance::wait_quit(_guard.quit_event, 100);
+                        while let Ok(ev) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+                            if ev.id == quit_id {
+                                quit = true;
+                            } else if ev.id == show_id {
+                                show(hwnd);
+                            }
+                        }
+                        if quit {
+                            QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    }
+                });
             }
             Ok(Box::new(app))
         }),
     )
+}
+
+/// 退出请求标志（看守线程置位 → 主线程 update 显式 Drop 托盘后正常关闭，防幽灵图标）
+#[cfg(windows)]
+static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 系统托盘（QQ/微信式后台驻留）：托盘图标 + 「显示窗口/退出」菜单。
+/// 关闭主窗口 = 最小化到托盘（不退出），退出仅走托盘菜单或 --quit 信号。
+struct AppTray {
+    _tray: tray_icon::TrayIcon,
+    show_id: tray_icon::menu::MenuId,
+    quit_id: tray_icon::menu::MenuId,
+}
+
+fn create_tray() -> Option<AppTray> {
+    use tray_icon::menu::{Menu, MenuItem};
+    // 32x32 蓝色方块图标（运行时生成，避免带资源文件）
+    let (w, h) = (32usize, 32usize);
+    let mut rgba = vec![0u8; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            let border = x < 3 || y < 3 || x >= w - 3 || y >= h - 3;
+            let (r, g, b) = if border { (30u8, 90u8, 200u8) } else { (59u8, 130u8, 246u8) };
+            rgba[i] = r;
+            rgba[i + 1] = g;
+            rgba[i + 2] = b;
+            rgba[i + 3] = 255;
+        }
+    }
+    let icon = tray_icon::Icon::from_rgba(rgba, w as u32, h as u32).ok()?;
+    let menu = Menu::new();
+    let show_item = MenuItem::new("显示窗口", true, None);
+    let quit_item = MenuItem::new("退出", true, None);
+    let show_id = show_item.id().clone();
+    let quit_id = quit_item.id().clone();
+    menu.append(&show_item).ok()?;
+    menu.append(&quit_item).ok()?;
+    let tray = tray_icon::TrayIconBuilder::new()
+        .with_menu(Box::new(menu))
+        .with_tooltip("编辑器补丁（星火编辑器 MCP/补丁服务）")
+        .with_icon(icon)
+        .build()
+        .ok()?;
+    Some(AppTray { _tray: tray, show_id, quit_id })
 }
 
 /// 加载系统中文字体（微软雅黑），egui 默认字体不含中文
@@ -237,9 +392,10 @@ struct EditorPatchApp {
     mcp_port_input: String,
     /// 编辑器 exe 名配置（文本框，默认 星火编辑器.exe）
     exe_name_input: String,
-    /// 单实例守卫（GUI 驻留期间持有；轮询「唤起窗口」信号）
-    #[cfg(windows)]
-    single_guard: Option<single_instance::Guard>,
+    /// 系统托盘（QQ/微信式后台驻留；退出时主线程显式 Drop 清理图标）
+    tray: Option<AppTray>,
+    /// 退出流程中标记（区分「关闭=最小化到托盘」与「退出请求的正常关闭」）
+    exiting: bool,
 }
 
 impl EditorPatchApp {
@@ -256,8 +412,8 @@ impl EditorPatchApp {
             status: String::new(),
             mcp_port_input: String::new(),
             exe_name_input: String::new(),
-            #[cfg(windows)]
-            single_guard: None,
+            tray: None,
+            exiting: false,
         };
         if let Some(root) = project_root {
             app.set_project(root);
@@ -528,21 +684,24 @@ impl EditorPatchApp {
 
 impl eframe::App for EditorPatchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // 单实例唤起/退出信号
+        // 退出请求（看守线程置位）：主线程显式 Drop 托盘清理图标后正常关闭
         #[cfg(windows)]
-        if let Some(g) = &self.single_guard {
-            if single_instance::show_signaled(g.show_event) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                self.log("INFO", "检测到重复启动，已唤起窗口");
-            }
-            if single_instance::quit_signaled(g.quit_event) {
-                self.log("INFO", "收到退出信号（宿主升级/停止请求），应用退出");
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
+        if QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) && !self.exiting {
+            self.exiting = true;
+            drop(self.tray.take());
+            self.log("INFO", "收到退出请求，应用退出");
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
-        // 隐藏驻留时 egui 无事件不触发 update——周期唤醒保证信号轮询（2 次/秒，开销可忽略）
+
+        // 关闭主窗口 = 最小化到托盘（不退出；QQ/微信模式；唤起/退出由看守线程 Win32 处理）
+        if !self.exiting && ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+            self.log("INFO", "窗口已最小化到系统托盘（托盘图标右键菜单可退出）");
+        }
+
+        // 周期唤醒（隐藏驻留时保持 update 触发，处理退出标志等；egui 不知窗口被 Win32 隐藏，
+        // 事件循环照常运行，500ms 一次开销可忽略）
         ctx.request_repaint_after(std::time::Duration::from_millis(500));
 
         let task_running = self.poll_task(ctx);

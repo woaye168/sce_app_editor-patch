@@ -23,7 +23,7 @@ encoding_rs = "0.8"
 anyhow = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-bgd_appsdk = { git = "https://github.com/woaye168/bgd_sce_appsdk" }
+bgd_appsdk = "0.1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_Security"] }

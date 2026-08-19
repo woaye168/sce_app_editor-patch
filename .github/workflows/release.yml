@@ -16,6 +16,13 @@ jobs:
         with:
           fetch-depth: 0 # 完整历史，用于归纳版本间提交
 
+      # bgd_appsdk 是 path 依赖，检出到工作区内子目录（私有仓库用 PAT），构建前改写路径
+      - uses: actions/checkout@v6
+        with:
+          repository: woaye168/bgd_sce_appsdk
+          path: bgd_sce_appsdk
+          token: ${{ secrets.BGD_CROSS_REPO_PAT }}
+
       - name: Generate release notes
         shell: pwsh
         run: |
@@ -57,6 +64,9 @@ jobs:
           Write-Output "注入版本号: $ver"
           $cargo = Get-Content Cargo.toml -Raw
           $cargo = $cargo -replace '(?m)^version = "[^"]*"', "version = `"$ver`""
+          Set-Content Cargo.toml $cargo -NoNewline -Encoding utf8
+          # bgd_appsdk path 依赖：本地为 ../bgd_sce_plugins，CI 检出在 bgd_sce_appsdk 子目录
+          $cargo = $cargo -replace 'path = "\.\./bgd_sce_plugins"', 'path = "bgd_sce_appsdk"'
           Set-Content Cargo.toml $cargo -NoNewline -Encoding utf8
           Write-Output "已写入 Cargo.toml"
           "ver=$ver" | Out-File $env:GITHUB_OUTPUT -Append

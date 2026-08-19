@@ -72,24 +72,10 @@ fn notify_cmd(rest: &[String]) -> Result<serde_json::Value, String> {
 }
 
 /// 向运行中的 GUI 实例发送「刷新」事件（notify 后让其重新加载最近项目）
-#[cfg(windows)]
 fn signal_refresh_event() {
-    use windows_sys::Win32::System::Threading::{CreateEventW, SetEvent};
-    let name: Vec<u16> = "sce_app_editor-patch_refresh"
-        .encode_utf16()
-        .chain(std::iter::once(0))
-        .collect();
-    unsafe {
-        let ev = CreateEventW(std::ptr::null(), 0, 0, name.as_ptr());
-        if !ev.is_null() {
-            SetEvent(ev);
-            windows_sys::Win32::Foundation::CloseHandle(ev);
-        }
-    }
+    #[cfg(windows)]
+    bgd_appsdk::single_instance::signal_refresh("sce_app_editor-patch");
 }
-
-#[cfg(not(windows))]
-fn signal_refresh_event() {}
 
 fn resolve_project(args: &[String]) -> Result<PathBuf, String> {
     parse_project(args)

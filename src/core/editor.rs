@@ -48,37 +48,16 @@ pub fn set_editor_exe_name(engine_root: &Path, name: &str) -> Result<(), String>
         .map_err(|e| format!("写入配置失败: {e}"))
 }
 
-// ---------------------------------------------------------------- 应用级配置（exe 同目录）
-
-/// 应用配置文件路径（exe 同目录 editor-patch.config.json）
-fn app_config_path() -> Option<PathBuf> {
-    std::env::current_exe()
-        .ok()?
-        .parent()
-        .map(|d| d.join("editor-patch.config.json"))
-}
-
-fn read_app_config() -> Value {
-    app_config_path()
-        .and_then(|p| std::fs::read_to_string(p).ok())
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or(json!({}))
-}
+// ---------------------------------------------------------------- 应用级配置（bgd_appsdk 统一实现，exe 旁 <app>.config.json）
 
 /// 最近项目路径（GUI 选择项目时写入；MCP/CLI 缺省项目用它）
 pub fn last_project_path() -> Option<PathBuf> {
-    read_app_config()["last_project_path"]
-        .as_str()
-        .filter(|s| locate::is_valid_project(Path::new(s)))
-        .map(PathBuf::from)
+    bgd_appsdk::config::last_project_path().filter(|p| locate::is_valid_project(p))
 }
 
 /// 写最近项目路径
 pub fn set_last_project_path(project_root: &Path) {
-    let Some(path) = app_config_path() else { return };
-    let mut cfg = read_app_config();
-    cfg["last_project_path"] = Value::String(project_root.display().to_string().replace('\\', "/"));
-    let _ = std::fs::write(&path, serde_json::to_string_pretty(&cfg).unwrap());
+    bgd_appsdk::config::set_last_project_path(project_root);
 }
 
 // ---------------------------------------------------------------- editor_start / editor_stop

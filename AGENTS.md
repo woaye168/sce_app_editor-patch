@@ -4,13 +4,14 @@
 
 ## 项目定位
 
-独立的 egui 桌面应用（中文名「编辑器补丁」）：给**星火编辑器**打补丁——把目标库**整库解密为裸露源码**、在库入口注入补丁插槽、解除使用限制，支持按库分组的可勾选补丁模块。通过宿主 [bgd_sce_tools](https://github.com/woaye168/bgd_sce_tools) 的「应用市场」安装分发（registry 在 [bgd_sce_plugins](https://github.com/woaye168/bgd_sce_plugins)），宿主启动时传 `--project-path <项目根>`。
+独立的 egui 桌面应用（中文名「编辑器补丁」）：给**星火编辑器**打补丁——把目标库**整库解密为裸露源码**、在库入口注入补丁插槽、解除使用限制，支持按库分组的可勾选补丁模块。通过宿主 [bgd_sce_tools](https://github.com/woaye168/bgd_sce_tools) 的「应用市场」安装分发（registry 在 [bgd_sce_appsdk](https://github.com/woaye168/bgd_sce_appsdk)），宿主启动时传 `--project-path <项目根>`。
 
 **同时是 AGENT 操作编辑器的唯一 MCP 入口**：`sce_app_editor-patch mcp`（stdio，恒定 8 工具：editor_start/editor_stop/get_game_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge）。同名 CLI 子命令 `editor start|stop`、`logs`、`capture`、`notify <key>=<value>`（宿主解耦通知：切项目时更新运行时共享常量 bgd_runtime.lua + 最近项目 + 通知 GUI 刷新）供人类/脚本直接用。应用单实例；`--background` 静默驻留（看守线程 Win32 SW_HIDE/SW_RESTORE 驱动主窗口——egui 隐藏时事件循环休眠，不能依赖 ViewportCommand）；`--quit` 优雅退出；窗口 X = 正常退出。bridge dll 部署失败（编辑器占用）时置待重部署标志，update 每 5s 自动重试。
 
 ## 技术栈与规范
 
 - Rust 2021；eframe/egui 0.29；clap；windows-capture + image（截图）；reqwest（桥 HTTP）
+- **bgd_appsdk**（path 依赖 `../bgd_sce_plugins`，仓库 [bgd_sce_appsdk](https://github.com/woaye168/bgd_sce_appsdk)）：单实例/看守线程/日志/应用配置等公共基建，禁止在本仓库重复实现
 - **模块拆分**：单文件接近 500 行必须按职责拆分。
 
 ## 目录结构

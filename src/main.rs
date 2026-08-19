@@ -38,127 +38,9 @@ struct Args {
     background: bool,
 }
 
-/// 应用级单实例（0.5.6）：重复启动只唤起已运行实例的窗口。
-/// 机制：命名互斥体判活 + 命名事件作「显示窗口」信号；CLI 子命令（mcp/editor/logs/capture）
-/// 是独立短进程，不受单实例限制。
+/// 单实例前缀（bgd_appsdk 单实例/事件通道的命名空间）
 #[cfg(windows)]
-mod single_instance {
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, HANDLE};
-    use windows_sys::Win32::System::Threading::{CreateEventW, CreateMutexW, SetEvent, WaitForSingleObject};
-
-    pub struct Guard {
-        pub show_event: HANDLE,
-        pub quit_event: HANDLE,
-        pub refresh_event: HANDLE,
-        _mutex: HANDLE,
-    }
-    // HANDLE 是内核对象句柄（值语义），跨线程 WaitForSingleObject 安全
-    unsafe impl Send for Guard {}
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            unsafe {
-                CloseHandle(self.show_event);
-                CloseHandle(self.quit_event);
-                CloseHandle(self.refresh_event);
-                CloseHandle(self._mutex);
-            }
-        }
-    }
-
-    fn wide(s: &str) -> Vec<u16> {
-        s.encode_utf16().chain(std::iter::once(0)).collect()
-    }
-
-    /// 获取单实例守卫；已存在实例时发送「显示窗口」信号并返回 None（调用方应退出）
-    pub fn acquire() -> Option<Guard> {
-        unsafe {
-            let name = wide("sce_app_editor-patch_single");
-            let mutex = CreateMutexW(std::ptr::null(), 1, name.as_ptr());
-            if mutex.is_null() {
-                return None;
-            }
-            if GetLastError() == ERROR_ALREADY_EXISTS {
-                let ev_name = wide("sce_app_editor-patch_show");
-                let ev = CreateEventW(std::ptr::null(), 0, 0, ev_name.as_ptr());
-                if !ev.is_null() {
-                    SetEvent(ev);
-                    CloseHandle(ev);
-                }
-                CloseHandle(mutex);
-                return None;
-            }
-            let ev_name = wide("sce_app_editor-patch_show");
-            let show_ev = CreateEventW(std::ptr::null(), 0, 0, ev_name.as_ptr());
-            let quit_name = wide("sce_app_editor-patch_quit");
-            let quit_ev = CreateEventW(std::ptr::null(), 0, 0, quit_name.as_ptr());
-            let refresh_name = wide("sce_app_editor-patch_refresh");
-            let refresh_ev = CreateEventW(std::ptr::null(), 0, 0, refresh_name.as_ptr());
-            Some(Guard { show_event: show_ev, quit_event: quit_ev, refresh_event: refresh_ev, _mutex: mutex })
-        }
-    }
-
-    /// 后台线程阻塞等待信号（毫秒超时轮询，供看守线程用）
-    pub fn wait_show(show_event: HANDLE, ms: u32) -> bool {
-        unsafe { WaitForSingleObject(show_event, ms) == 0 }
-    }
-
-    /// 后台线程阻塞等待退出信号
-    pub fn wait_quit(quit_event: HANDLE, ms: u32) -> bool {
-        unsafe { WaitForSingleObject(quit_event, ms) == 0 }
-    }
-
-    /// 后台线程阻塞等待刷新信号（宿主 notify 切换项目等）
-    pub fn wait_refresh(refresh_event: HANDLE, ms: u32) -> bool {
-        unsafe { WaitForSingleObject(refresh_event, ms) == 0 }
-    }
-
-    /// 精确获取本进程主窗口（PID 匹配 + 标题非空；egui 主窗口有标题，
-    /// 托盘/Winit 辅助窗口无标题——不会误抓其他进程或辅助窗口）
-    pub fn find_current_process_window() -> HANDLE {
-        use windows_sys::Win32::Foundation::{HWND, LPARAM};
-        use windows_sys::Win32::System::Threading::GetCurrentProcessId;
-        use windows_sys::Win32::UI::WindowsAndMessaging::{
-            EnumWindows, GetWindowTextW, GetWindowThreadProcessId,
-        };
-        struct Ctx {
-            pid: u32,
-            found: HWND,
-        }
-        unsafe extern "system" fn cb(hwnd: HWND, lparam: LPARAM) -> i32 {
-            let ctx = &mut *(lparam as *mut Ctx);
-            let mut pid = 0u32;
-            GetWindowThreadProcessId(hwnd, &mut pid);
-            if pid == ctx.pid {
-                let mut t = [0u16; 16];
-                if GetWindowTextW(hwnd, t.as_mut_ptr(), t.len() as i32) > 0 {
-                    ctx.found = hwnd;
-                    return 0; // 找到即停
-                }
-            }
-            1
-        }
-        let mut ctx = Ctx {
-            pid: unsafe { GetCurrentProcessId() },
-            found: std::ptr::null_mut(),
-        };
-        unsafe {
-            EnumWindows(Some(cb), &mut ctx as *mut Ctx as LPARAM);
-        }
-        ctx.found
-    }
-
-    /// 向已运行实例发送「退出」信号（宿主升级前优雅停止用）
-    pub fn signal_quit() {
-        unsafe {
-            let quit_name = wide("sce_app_editor-patch_quit");
-            let ev = CreateEventW(std::ptr::null(), 0, 0, quit_name.as_ptr());
-            if !ev.is_null() {
-                SetEvent(ev);
-                CloseHandle(ev);
-            }
-        }
-    }
-}
+const SI_PREFIX: &str = "sce_app_editor-patch";
 
 fn main() -> eframe::Result<()> {
     // panic 落盘（GUI 是 windows 子系统，崩溃默认无任何输出）
@@ -189,13 +71,13 @@ fn main() -> eframe::Result<()> {
     // --quit：向已运行实例发「退出」信号后退出（宿主升级前优雅停止用，0.5.7）
     #[cfg(windows)]
     if raw.iter().any(|a| a == "--quit") {
-        single_instance::signal_quit();
+        bgd_appsdk::single_instance::signal_quit(SI_PREFIX);
         return Ok(());
     }
 
     // GUI 路径单实例（0.5.6）：已运行则只发「唤起窗口」信号并退出（静默自启下点「打开」= 唤出窗口）
     #[cfg(windows)]
-    let single_guard = match single_instance::acquire() {
+    let single_guard = match bgd_appsdk::single_instance::acquire(SI_PREFIX) {
         Some(g) => Some(g),
         None => return Ok(()),
     };
@@ -229,63 +111,14 @@ fn main() -> eframe::Result<()> {
             let app = EditorPatchApp::new(project_path);
             #[cfg(windows)]
             if let Some(g) = single_guard {
-                // 看守线程：等待 唤起/退出 信号，Win32 驱动主窗口 + 置退出标志。
-                // 关键：egui 不知道窗口被 Win32 隐藏，事件循环照常运行，update 持续触发——
-                // 唤起直接 Win32 ShowWindow（前台激活限制下也可靠），退出走 QUIT 标志由
-                // 主线程 update 正常关闭。guard 移入线程持有（Drop 会释放单实例互斥体）。
-                use windows_sys::Win32::Foundation::HWND;
-                use windows_sys::Win32::UI::WindowsAndMessaging::{
-                    SetForegroundWindow, ShowWindow, SW_HIDE, SW_RESTORE, SW_SHOW,
-                };
-                let background = args.background;
-                std::thread::spawn(move || {
-                    let _guard = g;
-                    let mut hwnd: HWND = std::ptr::null_mut();
-                    // 轮询等待主窗口创建完成
-                    for _ in 0..50 {
-                        hwnd = single_instance::find_current_process_window();
-                        if !hwnd.is_null() {
-                            break;
-                        }
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                    // 静默自启：窗口创建后立刻 Win32 隐藏（egui 的 with_visible(false) 起步不可靠）
-                    if background && !hwnd.is_null() {
-                        unsafe {
-                            ShowWindow(hwnd, SW_HIDE);
-                        }
-                    }
-                    loop {
-                        if single_instance::wait_show(_guard.show_event, 200) {
-                            unsafe {
-                                if !hwnd.is_null() {
-                                    ShowWindow(hwnd, SW_RESTORE);
-                                    ShowWindow(hwnd, SW_SHOW);
-                                    SetForegroundWindow(hwnd);
-                                }
-                            }
-                        }
-                        if single_instance::wait_quit(_guard.quit_event, 100) {
-                            QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
-                        }
-                        if single_instance::wait_refresh(_guard.refresh_event, 50) {
-                            REFRESH_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
-                        }
-                    }
-                });
+                // 看守线程（bgd_appsdk）：等待 唤起/退出/刷新 信号并 Win32 驱动主窗口
+                // （egui 隐藏时事件循环休眠，信号处理必须离开 UI 线程）
+                bgd_appsdk::watcher::spawn(g, args.background);
             }
             Ok(Box::new(app))
         }),
     )
 }
-
-/// 退出请求标志（看守线程 --quit 置位 → 主线程 update 正常关闭）
-#[cfg(windows)]
-static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// 刷新请求标志（notify CLI 置位 → 主线程 update 重新加载最近项目）
-#[cfg(windows)]
-static REFRESH_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 加载系统中文字体（微软雅黑），egui 默认字体不含中文
 fn setup_chinese_font(ctx: &egui::Context) {
@@ -652,14 +485,14 @@ impl eframe::App for EditorPatchApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // 退出请求（看守线程 --quit 置位）：正常关闭（无托盘，X 关闭即退出）
         #[cfg(windows)]
-        if QUIT_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        if bgd_appsdk::watcher::take_quit() {
             self.log("INFO", "收到退出请求，应用退出");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
         // 刷新请求（宿主 notify 切换项目）：重新加载最近项目
         #[cfg(windows)]
-        if REFRESH_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        if bgd_appsdk::watcher::take_refresh() {
             if let Some(p) = editor::last_project_path() {
                 let changed = self.project_root.as_ref() != Some(&p);
                 if changed {

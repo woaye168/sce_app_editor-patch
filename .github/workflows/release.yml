@@ -45,6 +45,7 @@ jobs:
           "body<<EOF" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           $body | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           "EOF" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          $body | Set-Content release_notes.md -Encoding utf8
         id: notes
 
       - uses: dtolnay/rust-toolchain@stable
@@ -88,9 +89,7 @@ jobs:
         run: |
           $meta = Get-Content app.json -Raw -Encoding utf8 | ConvertFrom-Json
           $meta | Add-Member -NotePropertyName version -NotePropertyValue ("${{ github.ref_name }}".TrimStart('v'))
-          $meta | Add-Member -NotePropertyName release_notes -NotePropertyValue @'
-${{ steps.notes.outputs.body }}
-'@
+          $meta | Add-Member -NotePropertyName release_notes -NotePropertyValue (Get-Content release_notes.md -Raw -Encoding utf8)
           $meta | ConvertTo-Json -Depth 5 | Set-Content app-release.json -Encoding utf8
 
       - name: Upload Release

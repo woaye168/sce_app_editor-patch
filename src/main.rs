@@ -10,7 +10,6 @@
 // Windows 下不弹出黑色控制台窗口
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-use clap::Parser;
 use sce_app_editor_patch::core::{bridge_deploy, editor, kernel, locate, log, modules, EditorTarget};
 
 /// windows 子系统下 CLI 输出会被吞；命中 CLI 时附加到父进程控制台
@@ -27,21 +26,6 @@ use std::sync::atomic::Ordering;
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const APP_NAME: &str = "编辑器补丁";
 
-#[derive(Parser)]
-#[command(name = "sce_app_editor-patch", about = "给星火编辑器打补丁，实现功能扩展")]
-struct Args {
-    /// 项目路径（星火编辑器项目根，含 project/map_settings.json）
-    #[arg(long)]
-    project_path: Option<String>,
-    /// 静默自启形态：不显示主窗口，驻留后台（宿主静默自启时透传）
-    #[arg(long)]
-    background: bool,
-}
-
-/// 单实例前缀（bgd_appsdk 单实例/事件通道的命名空间）
-#[cfg(windows)]
-const SI_PREFIX: &str = "sce_app_editor-patch";
-
 fn main() -> eframe::Result<()> {
     // panic 落盘（GUI 是 windows 子系统，崩溃默认无任何输出）
     std::panic::set_hook(Box::new(|info| {
@@ -51,7 +35,7 @@ fn main() -> eframe::Result<()> {
         );
     }));
 
-    // CLI 子命令（0.5.4 起：编辑器控制能力随应用自持）：editor/logs/capture/mcp
+    // CLI 子命令（0.5.4 起：编辑器控制能力随应用自持）：editor/logs/capture/mcp/notify
     let raw: Vec<String> = std::env::args().skip(1).collect();
     if let Some(first) = raw.first().map(|s| s.as_str()) {
         match first {
@@ -68,42 +52,18 @@ fn main() -> eframe::Result<()> {
         }
     }
 
-    // --quit：向已运行实例发「退出」信号后退出（宿主升级前优雅停止用，0.5.7）
-    #[cfg(windows)]
-    if raw.iter().any(|a| a == "--quit") {
-        bgd_appsdk::single_instance::signal_quit(SI_PREFIX);
-        return Ok(());
-    }
-
-    // GUI 路径单实例（0.5.6）：已运行则只发「唤起窗口」信号并退出（静默自启下点「打开」= 唤出窗口）
-    #[cfg(windows)]
-    let single_guard = match bgd_appsdk::single_instance::acquire(SI_PREFIX) {
-        Some(g) => Some(g),
-        None => return Ok(()),
-    };
-
-    let args = Args::parse();
-
-    // 项目路径：优先 --project-path，否则启动后由用户在界面选择
-    let project_path = args.project_path.map(PathBuf::from).and_then(|p| {
-        if locate::is_valid_project(&p) {
-            Some(p)
-        } else {
-            eprintln!("警告：{} 不是有效的星火项目（缺少 project/map_settings.json）", p.display());
-            None
-        }
-    });
-
-    #[cfg(windows)]
-    if let Some(g) = single_guard {
-        // 看守线程（bgd_appsdk）：等待 唤起/退出/刷新 信号并 Win32 驱动主窗口
-        // （egui 隐藏时事件循环休眠，信号处理必须离开 UI 线程）
-        bgd_appsdk::watcher::spawn(g, args.background);
-    }
-
-    let app = EditorPatchApp::new(None);
-    let shell = bgd_appsdk::ui::AppShell::new(app, APP_VERSION, project_path);
-    shell.run([780.0, 660.0], [660.0, 520.0], args.background)
+    // 应用统一入口（bgd_appsdk 全托管公共逻辑：--quit/单实例/看守线程/项目解析/窗口壳）
+    bgd_appsdk::app::run(
+        bgd_appsdk::app::AppOptions {
+            app_name: APP_NAME,
+            inner_size: [780.0, 660.0],
+            min_size: [660.0, 520.0],
+            si_prefix: None,
+            is_valid_project: Some(|p| locate::is_valid_project(p)),
+            app: EditorPatchApp::new(None),
+        },
+        APP_VERSION,
+    )
 }
 
 struct EditorPatchApp {

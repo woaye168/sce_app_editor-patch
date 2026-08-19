@@ -17,7 +17,7 @@
 ## 目录结构
 
 ```
-src/main.rs            # UI（内核/补丁/帮助三标签）+ CLI 分发 + 单实例
+src/main.rs            # 入口（业务 CLI 分发 + bgd_appsdk::app::run 统一入口）+ 业务 UI
 src/cli.rs             # CLI 子命令（editor/logs/capture）
 src/mcp.rs             # stdio MCP 聚合服务（NDJSON）
 src/core/              # locate/crypto/ops/backup/log/kernel/modules/slot_inject
@@ -88,8 +88,7 @@ git tag v0.x.0 && git push origin v0.x.0   # CI 注入版本号 → 构建 → �
 
 - 版本号唯一来源是 git tag（Cargo.toml 固定 `0.0.0-dev`）。
 - **C# 桥 dll 是构建前置**：先 `dotnet build csharp/bgd_mcp_bridge`（Release x64）再 cargo build（include_bytes! 嵌入）。
-- **本应用无自我更新**：版本更新由宿主应用市场负责（registry.json 走 API 下载 asset，需 GitHub Token 授权本仓库）。
-- 发版后同步更新 bgd_sce_plugins 的 `registry.json`（`version`/`tag`），`asset_name` 恒为 `sce_app_editor-patch.exe`。
+- **本应用无自我更新**：版本更新由宿主应用市场负责（应用仓库 CI 合成的 `app-release.json` 提供版本/描述/版本说明，宿主凭极简 registry 发现本应用；发版不再改任何清单）。
 
 ## 自测自修流程（开发完成后必走）
 

@@ -2,8 +2,8 @@
 -- 为什么必须在 xdeditor 包：项目目录的监听器是 xdeditor/window/file_monitor_window.lua
 -- 在编辑器 UI 进程内挂的（io.add_watch(map_path, true, false)，地图加载/切换时挂载），
 -- script 包侧的 io.add_watch 包装拦截不到它。
--- project_root 由「编辑器补丁」应用在启用本模块时注入（_project_root.lua，AUTO-GENERATED），
--- 比脚本侧 io.get_user_data_path 等运行时推导可靠。
+-- project_root 来自运行时共享常量 bgd_runtime.lua（补丁框架根目录，AUTO-GENERATED；
+-- 宿主切换项目时通过 notify 自动更新），比脚本侧 io.get_user_data_path 等运行时推导可靠。
 
 local function logi(m)
     if log and log.info then
@@ -11,9 +11,10 @@ local function logi(m)
     end
 end
 
-local ok_root, project_root = pcall(require, 'sce_app_editor-patch.unwatch._project_root')
-if not ok_root or type(project_root) ~= 'string' or project_root == '' then
-    logi('unwatch: 未注入 project_root（请通过「编辑器补丁」应用重新勾选本模块以注入），跳过')
+local ok_cfg, runtime_cfg = pcall(require, 'sce_app_editor-patch.bgd_runtime')
+local project_root = ok_cfg and type(runtime_cfg) == 'table' and runtime_cfg.project_path or nil
+if type(project_root) ~= 'string' or project_root == '' then
+    logi('unwatch: 运行时共享常量无 project_path（请通过「编辑器补丁」应用重新勾选本模块），跳过')
     return
 end
 

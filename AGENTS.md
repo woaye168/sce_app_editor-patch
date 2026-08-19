@@ -6,7 +6,7 @@
 
 独立的 egui 桌面应用（中文名「编辑器补丁」）：给**星火编辑器**打补丁——把目标库**整库解密为裸露源码**、在库入口注入补丁插槽、解除使用限制，支持按库分组的可勾选补丁模块。通过宿主 [bgd_sce_tools](https://github.com/woaye168/bgd_sce_tools) 的「应用市场」安装分发（registry 在 [bgd_sce_plugins](https://github.com/woaye168/bgd_sce_plugins)），宿主启动时传 `--project-path <项目根>`。
 
-**同时是 AGENT 操作编辑器的唯一 MCP 入口**：`sce_app_editor-patch mcp`（stdio，恒定 8 工具：editor_start/editor_stop/get_game_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge）。同名 CLI 子命令 `editor start|stop`、`logs`、`capture` 供人类/脚本直接用。应用单实例；`--background` 静默驻留（看守线程 Win32 SW_HIDE/SW_RESTORE 驱动主窗口——egui 隐藏时事件循环休眠，不能依赖 ViewportCommand）；`--quit` 优雅退出（QUIT 标志→主线程关闭）；窗口 X = 正常退出（无托盘）。bridge dll 部署失败（编辑器占用）时置待重部署标志，update 每 5s 自动重试。
+**同时是 AGENT 操作编辑器的唯一 MCP 入口**：`sce_app_editor-patch mcp`（stdio，恒定 8 工具：editor_start/editor_stop/get_game_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge）。同名 CLI 子命令 `editor start|stop`、`logs`、`capture`、`notify <key>=<value>`（宿主解耦通知：切项目时更新运行时共享常量 bgd_runtime.lua + 最近项目 + 通知 GUI 刷新）供人类/脚本直接用。应用单实例；`--background` 静默驻留（看守线程 Win32 SW_HIDE/SW_RESTORE 驱动主窗口——egui 隐藏时事件循环休眠，不能依赖 ViewportCommand）；`--quit` 优雅退出；窗口 X = 正常退出。bridge dll 部署失败（编辑器占用）时置待重部署标志，update 每 5s 自动重试。
 
 ## 技术栈与规范
 
@@ -53,7 +53,8 @@ doc/requirements|research/  # 版本需求文档 / 研究成果
 
 - 补丁目录 = `<require根>/sce_app_editor-patch/`，`main.lua` 为 AUTO-GENERATED 入口按启用列表 pcall require；**目录存在即启用**。
 - 元数据在 `patches/modules.json`（默认勾选/部署 dll/注入项目根/注入 exe 路径）；新增模块：放 lua + 登记 + `module_files` 挂文件。
-- refresh 自同步：按嵌 exe 内容重写已启用模块文件、刷新注入的项目路径/exe 路径、dll 内容比对重部署（编辑器内运行时升级需重启编辑器）。
+- refresh 自同步：按嵌 exe 内容重写已启用模块文件、刷新运行时共享常量/exe 路径、dll 内容比对重部署（编辑器内运行时升级需重启编辑器）。
+- **运行时共享常量**：`<require根>/sce_app_editor-patch/bgd_runtime.lua`（`return { project_path = ... }` 表结构，所有模块可 require）——由启用注入声明的模块时写入、refresh 同步、宿主 notify（切项目）实时更新；模块读常量不走各自注入文件。
 - 现有模块：`hello`（示例）、`unwatch`（解除项目文件监听，默认开）、`menu_bgd`（帮助菜单，默认开，用官方事件桥注册）、`bgd_mcp_bridge`（MCP 桥，默认开）、`pie_capture`（拍照按钮修复=外部捕获，默认开；行为主体在 slots 覆盖的 gameplay_in_editor_view.lua，模块加载时把注入的 exe 路径写入全局 `_G.BGD_CAPTURE_EXE`）。
 
 ### bgd_mcp_bridge（C# 扩展注入）

@@ -49,6 +49,7 @@ mod single_instance {
     pub struct Guard {
         pub show_event: HANDLE,
         pub quit_event: HANDLE,
+        pub refresh_event: HANDLE,
         _mutex: HANDLE,
     }
     // HANDLE 是内核对象句柄（值语义），跨线程 WaitForSingleObject 安全
@@ -58,6 +59,7 @@ mod single_instance {
             unsafe {
                 CloseHandle(self.show_event);
                 CloseHandle(self.quit_event);
+                CloseHandle(self.refresh_event);
                 CloseHandle(self._mutex);
             }
         }
@@ -89,7 +91,9 @@ mod single_instance {
             let show_ev = CreateEventW(std::ptr::null(), 0, 0, ev_name.as_ptr());
             let quit_name = wide("sce_app_editor-patch_quit");
             let quit_ev = CreateEventW(std::ptr::null(), 0, 0, quit_name.as_ptr());
-            Some(Guard { show_event: show_ev, quit_event: quit_ev, _mutex: mutex })
+            let refresh_name = wide("sce_app_editor-patch_refresh");
+            let refresh_ev = CreateEventW(std::ptr::null(), 0, 0, refresh_name.as_ptr());
+            Some(Guard { show_event: show_ev, quit_event: quit_ev, refresh_event: refresh_ev, _mutex: mutex })
         }
     }
 
@@ -101,6 +105,11 @@ mod single_instance {
     /// 后台线程阻塞等待退出信号
     pub fn wait_quit(quit_event: HANDLE, ms: u32) -> bool {
         unsafe { WaitForSingleObject(quit_event, ms) == 0 }
+    }
+
+    /// 后台线程阻塞等待刷新信号（宿主 notify 切换项目等）
+    pub fn wait_refresh(refresh_event: HANDLE, ms: u32) -> bool {
+        unsafe { WaitForSingleObject(refresh_event, ms) == 0 }
     }
 
     /// 精确获取本进程主窗口（PID 匹配 + 标题非空；egui 主窗口有标题，
@@ -168,7 +177,7 @@ fn main() -> eframe::Result<()> {
                 // stdio MCP 走管道，不需要附加控制台
                 std::process::exit(sce_app_editor_patch::mcp::run_stdio());
             }
-            "editor" | "logs" | "capture" => {
+            "editor" | "logs" | "capture" | "notify" => {
                 #[cfg(windows)]
                 attach_parent_console();
                 std::process::exit(sce_app_editor_patch::cli::run(&raw));
@@ -259,6 +268,9 @@ fn main() -> eframe::Result<()> {
                         if single_instance::wait_quit(_guard.quit_event, 100) {
                             QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
                         }
+                        if single_instance::wait_refresh(_guard.refresh_event, 50) {
+                            REFRESH_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
                     }
                 });
             }
@@ -270,6 +282,10 @@ fn main() -> eframe::Result<()> {
 /// 退出请求标志（看守线程 --quit 置位 → 主线程 update 正常关闭）
 #[cfg(windows)]
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// 刷新请求标志（notify CLI 置位 → 主线程 update 重新加载最近项目）
+#[cfg(windows)]
+static REFRESH_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 加载系统中文字体（微软雅黑），egui 默认字体不含中文
 fn setup_chinese_font(ctx: &egui::Context) {
@@ -416,12 +432,40 @@ impl EditorPatchApp {
     }
 
     /// 已启用模块的自同步（refresh 时执行）：
-    /// - F1 项目切换后刷新 inject_project_root 模块注入的项目路径；
+    /// - 运行时共享常量 bgd_runtime.lua 按当前项目刷新（每库一次）；
     /// - 0.5.7 应用升级后按嵌 exe 内容刷新模块部署文件（sync_module_files）；
     /// - inject_exe_path 模块的 exe 路径刷新。
     fn sync_injected_project_roots(&mut self) {
         let Some(root) = self.project_root.clone() else { return };
         let Some(target) = &self.target else { return };
+        // 运行时共享常量（项目路径）：按库刷新一次（有 inject_project_root 模块启用时）
+        for lib in kernel::LIBS {
+            let needs = self.modules.iter().any(|m| {
+                m.pkg == lib.pkg
+                    && m.inject_project_root
+                    && self
+                        .enabled
+                        .get(lib.pkg)
+                        .map(|ids| ids.iter().any(|i| i == &m.id))
+                        .unwrap_or(false)
+            });
+            if !needs {
+                continue;
+            }
+            let Ok(lib_root) = lib.require_root_dir(target) else {
+                continue;
+            };
+            match modules::sync_runtime_config(&lib_root, &root) {
+                Ok(true) => {
+                    self.log("INFO", &format!("运行时共享常量项目路径已更新为: {}", root.display()));
+                    self.status = "运行时共享常量（项目路径）已更新（重启星火编辑器后生效）".to_string();
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    self.log("ERROR", &format!("运行时共享常量同步失败: {e}"));
+                }
+            }
+        }
         for m in &self.modules {
             let enabled = self
                 .enabled
@@ -437,22 +481,6 @@ impl EditorPatchApp {
             let Ok(lib_root) = lib.require_root_dir(target) else {
                 continue;
             };
-            match modules::sync_project_root(&lib_root, m, &root) {
-                Ok(true) => {
-                    self.log(
-                        "INFO",
-                        &format!("模块[{}]注入的项目路径已自动更新为: {}", m.id, root.display()),
-                    );
-                    self.status = format!(
-                        "检测到项目切换，已自动更新模块「{}」注入的项目路径（重启星火编辑器后生效）",
-                        m.name
-                    );
-                }
-                Ok(false) => {}
-                Err(e) => {
-                    self.log("ERROR", &format!("模块[{}]项目路径同步失败: {e}", m.id));
-                }
-            }
             // 0.5.7：应用升级后自动更新已启用模块的部署文件（嵌 exe 内容为准）
             match modules::sync_module_files(&lib_root, m) {
                 Ok(true) => {
@@ -627,6 +655,18 @@ impl eframe::App for EditorPatchApp {
         if QUIT_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
             self.log("INFO", "收到退出请求，应用退出");
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
+        // 刷新请求（宿主 notify 切换项目）：重新加载最近项目
+        #[cfg(windows)]
+        if REFRESH_REQUESTED.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            if let Some(p) = editor::last_project_path() {
+                let changed = self.project_root.as_ref() != Some(&p);
+                if changed {
+                    self.log("INFO", &format!("收到项目切换通知，切换到: {}", editor::to_slash(&p)));
+                    self.set_project(p);
+                }
+            }
         }
 
         // 周期唤醒（隐藏驻留时保持 update 触发，处理退出标志/重部署重试等）

@@ -4,9 +4,11 @@
 //!   sce_app_editor-patch editor start|stop [--project-path <项目根>] [--no-wait]
 //!   sce_app_editor-patch logs [client|server|bridge|all] [行数] [--project-path <项目根>]
 //!   sce_app_editor-patch capture [--ratio <倍率>] [--project-path <项目根>]
+//!   sce_app_editor-patch notify <key>=<value> [...]   # 宿主通知（切项目等）
 //!   sce_app_editor-patch mcp        # stdio MCP 聚合服务（AI 客户端配置入口）
 
-use crate::core::{capture, editor};
+use crate::core::{capture, editor, kernel, locate, modules};
+use serde_json::json;
 use std::path::PathBuf;
 
 const USAGE: &str = "
@@ -19,6 +21,8 @@ sce_app_editor-patch CLI
   editor stop            关闭星火编辑器（直接结束进程）
   logs [源] [行数]       最新日志文件信息（源: client/server/bridge/all；行数 0=不取内容）
   capture [--ratio N]    截取调试游戏画面（纯游戏画面+游戏UI；倍率 0.5/1/2/3/4）
+  notify <key>=<value>   宿主通知通道（当前支持 project_path=<项目根>：更新运行时共享常量
+                         bgd_runtime.lua + 应用最近项目 + 通知运行中的 GUI 实例刷新）
   mcp                    启动 stdio MCP 聚合服务（AI 客户端配置入口）
 
 选项:
@@ -35,6 +39,58 @@ fn parse_flag(args: &[String], key: &str) -> Option<String> {
     args.windows(2).find(|w| w[0] == key).map(|w| w[1].clone())
 }
 
+fn bail<T>(msg: &str) -> Result<T, String> {
+    Err(msg.to_string())
+}
+
+/// 宿主→应用解耦通知：key=value 对（应用自治处理）
+fn notify_cmd(rest: &[String]) -> Result<serde_json::Value, String> {
+    let mut handled: Vec<String> = Vec::new();
+    for pair in rest.iter().filter(|a| !a.starts_with("--")) {
+        if let Some(v) = pair.strip_prefix("project_path=") {
+            let root = PathBuf::from(v);
+            if !locate::is_valid_project(&root) {
+                bail(&format!("notify: 无效项目路径: {v}"))?;
+            }
+            let target = locate::locate(&root)?;
+            // 更新全部库的运行时共享常量 bgd_runtime.lua
+            for lib in kernel::LIBS {
+                if let Ok(lib_root) = lib.require_root_dir(&target) {
+                    modules::sync_runtime_config(&lib_root, &root)?;
+                }
+            }
+            // 更新应用最近项目（MCP/CLI 解析链跟随）+ 通知运行中的 GUI 实例刷新
+            editor::set_last_project_path(&root);
+            signal_refresh_event();
+            handled.push(format!("project_path={v}"));
+        }
+    }
+    if handled.is_empty() {
+        bail("notify: 无可识别的 key=value（当前支持 project_path=...）")?;
+    }
+    Ok(json!({ "ok": true, "handled": handled }))
+}
+
+/// 向运行中的 GUI 实例发送「刷新」事件（notify 后让其重新加载最近项目）
+#[cfg(windows)]
+fn signal_refresh_event() {
+    use windows_sys::Win32::System::Threading::{CreateEventW, SetEvent};
+    let name: Vec<u16> = "sce_app_editor-patch_refresh"
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect();
+    unsafe {
+        let ev = CreateEventW(std::ptr::null(), 0, 0, name.as_ptr());
+        if !ev.is_null() {
+            SetEvent(ev);
+            windows_sys::Win32::Foundation::CloseHandle(ev);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn signal_refresh_event() {}
+
 fn resolve_project(args: &[String]) -> Result<PathBuf, String> {
     parse_project(args)
         .or_else(editor::last_project_path)
@@ -49,6 +105,7 @@ pub fn run(args: &[String]) -> i32 {
     };
     let rest = &args[1..];
     let result: Result<serde_json::Value, String> = match cmd.as_str() {
+        "notify" => notify_cmd(rest),
         "editor" => {
             let sub = rest.first().map(|s| s.as_str()).unwrap_or("");
             match sub {

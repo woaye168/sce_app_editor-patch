@@ -134,6 +134,30 @@ fn slot_level(lib: &LibSpec, target: &EditorTarget, version: u64) -> SlotLevel {
     SlotLevel::Injectable
 }
 
+/// pie_capture 拍照修复的行为主体是插槽文件 ui/gameplay_in_editor_view.lua（仅随
+/// xdeditor v169 slots 下发）。其他版本启用 pie_capture 模块不会生效——本函数按实际
+/// 应用路径（精确 → 复用 → 运行时注入，注入只做入口/isolation 不含行为插槽）判定，
+/// 缺失时返回明确提示文案，不允许静默。
+pub fn pie_capture_slot_warning(target: &EditorTarget) -> Option<String> {
+    const REL: &str = "ui/gameplay_in_editor_view.lua";
+    let version = target.package_version("xdeditor").ok()?;
+    let slot_src = if slots::has_slots("xdeditor", version) {
+        Some(version)
+    } else {
+        target
+            .package_dir("xdeditor")
+            .ok()
+            .and_then(|dir| find_reusable_version("xdeditor", &dir, version))
+    };
+    let missing = match slot_src {
+        Some(v) => !slots::has_slot_file("xdeditor", v, REL),
+        None => true,
+    };
+    missing.then(|| {
+        format!("当前编辑器版本（xdeditor v{version}）不支持拍照修复（pie_capture 行为插槽缺失，模块可启用但不生效）")
+    })
+}
+
 /// 找可复用的最近低版本：带 manifest 且其记录的官方源哈希与新版本解码源全部一致
 fn find_reusable_version(pkg: &str, pkg_dir: &Path, current: u64) -> Option<u64> {
     for v in slots::versions_below(pkg, current) {
@@ -307,7 +331,7 @@ fn apply_all(project_root: &Path, progress: &SharedProgress) -> Result<String, S
     set_total(progress, total);
     let done = progress.lock().unwrap().done.clone();
 
-    let version_dir = target.version_dir();
+    let version_dir = target.version_dir()?;
     let mut lines = pre_errors;
     let mut ok_count = 0;
     for job in &jobs {
@@ -405,6 +429,15 @@ fn apply_lib(
             parts.push(format!("默认启用模块: {}", defaults.join(", ")));
         }
         parts.extend(warnings);
+    }
+
+    // pie_capture 行为插槽缺失时明确提示（兜底：不允许启用后静默不生效）
+    if lib.pkg == "xdeditor"
+        && modules::enabled_modules(&root).iter().any(|id| id == "pie_capture")
+    {
+        if let Some(w) = pie_capture_slot_warning(target) {
+            parts.push(w);
+        }
     }
 
     Ok(parts.join("，"))
@@ -529,8 +562,7 @@ fn restore_all(project_root: &Path, progress: &SharedProgress) -> Result<String,
     }
 
     // 追加恢复 sce.deps.json（若曾部署 MCP 桥）：失败只记日志，不中断整体还原
-    let version_dir = target.version_dir();
-    match bridge_deploy::restore_deps(&version_dir) {
+    match target.version_dir().and_then(|vdir| bridge_deploy::restore_deps(&vdir)) {
         Ok(()) => {
             log::log(Some(project_root), Some(&target.editor_root), "INFO",
                 "sce.deps.json 恢复检查完成");
@@ -588,6 +620,13 @@ mod slots {
     /// 是否有指定库/版本的插槽文件
     pub fn has_slots(pkg: &str, version: u64) -> bool {
         slot_dir(pkg, version).is_some()
+    }
+
+    /// 指定版本插槽树是否包含某个相对路径文件（如 pie_capture 的 ui/gameplay_in_editor_view.lua）
+    pub fn has_slot_file(pkg: &str, version: u64, rel: &str) -> bool {
+        slot_dir(pkg, version)
+            .and_then(|d| d.get_file(rel))
+            .is_some()
     }
 
     /// 该库所有带插槽的版本中，低于 current 的版本号列表（降序，复用判定从最近低版本开始）
@@ -695,7 +734,7 @@ mod tests {
             r#"{"api_version": {"api_version": 13}}"#,
         )
         .unwrap();
-        let editor_root = base.join("editor");
+        let editor_root = base.join("Update").join("editor-pd.spark.xd.com");
         std::fs::write(
             project.join("script").join("tsconfig.json"),
             format!(
@@ -706,6 +745,8 @@ mod tests {
         )
         .unwrap();
         std::fs::create_dir_all(&editor_root).unwrap();
+        // 引擎运行根（editor_root 上两级）需含 version-<api> 目录（engine_root 回退校验）
+        std::fs::create_dir_all(base.join("version-13")).unwrap();
         std::fs::write(
             editor_root.join("api_pak_version.json"),
             r##"{"#package_path": {"script": "Res/_m/script"},
@@ -770,7 +811,7 @@ mod tests {
             r#"{"api_version": {"api_version": 13}}"#,
         )
         .unwrap();
-        let editor_root = base.join("editor");
+        let editor_root = base.join("Update").join("editor-pd.spark.xd.com");
         std::fs::write(
             project.join("script").join("tsconfig.json"),
             format!(
@@ -781,6 +822,8 @@ mod tests {
         )
         .unwrap();
         std::fs::create_dir_all(&editor_root).unwrap();
+        // 引擎运行根（editor_root 上两级）需含 version-<api> 目录（engine_root 回退校验）
+        std::fs::create_dir_all(base.join("version-13")).unwrap();
         std::fs::write(
             editor_root.join("api_pak_version.json"),
             r##"{"#package_path": {"script": "Res/_m/script", "xdeditor": "Res/_m/xdeditor"},

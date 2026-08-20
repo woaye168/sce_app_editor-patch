@@ -64,11 +64,14 @@ pub fn backup_lib(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let manifest = format!(
-        "{{\n  \"group\": \"{group}\",\n  \"source\": \"{}\",\n  \"backup_time\": {secs}\n}}\n",
-        src_dir.display().to_string().replace('\\', "\\\\")
-    );
-    let _ = fs::write(format!("{}.manifest.json", dest.display()), manifest);
+    let manifest = serde_json::json!({
+        "group": group,
+        "source": src_dir.display().to_string(),
+        "backup_time": secs,
+    });
+    let manifest_path = format!("{}.manifest.json", dest.display());
+    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap())
+        .map_err(|e| format!("写入备份清单 {manifest_path} 失败: {e}"))?;
     Ok(true)
 }
 

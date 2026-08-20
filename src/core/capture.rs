@@ -31,7 +31,7 @@ pub fn capture_game(project_root: &Path, ratio: f64, out: Option<&Path>) -> Resu
 #[cfg(windows)]
 pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, open_explorer: bool) -> Result<Value> {
     let target = locate::locate(project_root).map_err(|e| anyhow!(e))?;
-    let engine_root = target.engine_root();
+    let engine_root = target.engine_root().map_err(|e| anyhow!(e))?;
     let port = bridge_client::online_port(&engine_root)
         .ok_or_else(|| anyhow!("编辑器不在线（MCP 桥不可达）。请先 editor_start 启动编辑器"))?;
 

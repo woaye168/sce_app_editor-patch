@@ -69,7 +69,7 @@ pub fn editor_start(
     timeout_ms: u64,
 ) -> Result<Value, String> {
     let target = locate::locate(project_root)?;
-    let engine_root = target.engine_root();
+    let engine_root = target.engine_root()?;
     let exe_name = editor_exe_name(&engine_root);
 
     // 幂等：已在线
@@ -133,7 +133,7 @@ pub fn editor_start(
 /// 关闭星火编辑器：直接结束进程（定稿不做优雅退出，避免保存确认弹窗挂住）。
 pub fn editor_stop(project_root: &Path) -> Result<Value, String> {
     let target = locate::locate(project_root)?;
-    let engine_root = target.engine_root();
+    let engine_root = target.engine_root()?;
 
     // 取 pid：在线走 server_info（exe 是启动器，真实编辑器是另一个进程，必须以桥为准）；
     // 离线按 exe 路径匹配进程
@@ -226,7 +226,7 @@ pub fn to_slash(path: &Path) -> String {
 /// all / 缺省 game（命中 game_client + game_server）。
 pub fn get_game_logs(project_root: &Path, source: &str, tail_lines: usize) -> Result<Value, String> {
     let target = locate::locate(project_root)?;
-    let logs_root = target.engine_root().join("logs");
+    let logs_root = target.engine_root()?.join("logs");
 
     let source = if source.trim().is_empty() { "game" } else { source.trim() };
     // 匹配规则：all=全部；精确 key；否则动态聚合（key 以 `source_` 为前缀）

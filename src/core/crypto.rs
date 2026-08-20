@@ -50,13 +50,42 @@ pub fn read_lua(path: &Path) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&plain).into_owned())
 }
 
-/// 原子写：先写同目录临时文件，再替换目标
+/// 原子写：先写同目录临时文件，再原子替换目标（全程不存在目标文件缺失窗口）。
+/// Windows 用 MoveFileExW(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) 真原子替换；
+/// 非 Windows 回退 rename（POSIX 下同目录 rename 本身原子）。
 pub fn write_atomic(path: &Path, data: &[u8]) -> Result<(), String> {
     let tmp = path.with_extension("ep-tmp");
     fs::write(&tmp, data).map_err(|e| format!("写入临时文件 {} 失败: {e}", tmp.display()))?;
-    if path.exists() {
-        fs::remove_file(path).map_err(|e| format!("删除旧文件 {} 失败: {e}", path.display()))?;
+    replace_file(&tmp, path)
+}
+
+#[cfg(windows)]
+fn replace_file(tmp: &Path, path: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain(std::iter::once(0)).collect() };
+    let from = wide(tmp);
+    let to = wide(path);
+    let ok = unsafe {
+        MoveFileExW(
+            from.as_ptr(),
+            to.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if ok == 0 {
+        let code = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+        return Err(format!(
+            "原子替换 {} 失败（MoveFileExW 错误码 {code}）",
+            path.display()
+        ));
     }
-    fs::rename(&tmp, path).map_err(|e| format!("替换 {} 失败: {e}", path.display()))?;
     Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_file(tmp: &Path, path: &Path) -> Result<(), String> {
+    fs::rename(tmp, path).map_err(|e| format!("替换 {} 失败: {e}", path.display()))
 }

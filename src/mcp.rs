@@ -38,7 +38,7 @@ fn resolve_project(args: Option<&Value>) -> Result<PathBuf> {
 /// 目标项目在线端口（不在线给引导性错误）
 fn require_online(project: &Path) -> Result<u16> {
     let target = locate::locate(project).map_err(|e| anyhow!(e))?;
-    bridge_client::online_port(&target.engine_root())
+    bridge_client::online_port(&target.engine_root().map_err(|e| anyhow!(e))?)
         .ok_or_else(|| anyhow!("编辑器不在线（MCP 桥不可达）。请先 editor_start 启动编辑器"))
 }
 

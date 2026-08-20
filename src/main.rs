@@ -30,7 +30,7 @@ fn main() -> eframe::Result<()> {
     // panic 落盘（GUI 是 windows 子系统，崩溃默认无任何输出）
     std::panic::set_hook(Box::new(|info| {
         let _ = std::fs::write(
-            "C:/Users/woaye/AppData/Local/Temp/ep_panic.txt",
+            std::env::temp_dir().join("ep_panic.txt"),
             format!("{info}"),
         );
     }));
@@ -146,7 +146,8 @@ impl EditorPatchApp {
         let Some(root) = self.project_root.clone() else {
             return;
         };
-        match locate::locate(&root) {
+        let located = locate::locate(&root).and_then(|t| t.engine_root().map(|_| t));
+        match located {
             Ok(target) => {
                 self.statuses = kernel::check(&target);
                 self.enabled.clear();
@@ -158,7 +159,9 @@ impl EditorPatchApp {
                 }
                 self.locate_error.clear();
                 self.status = format!("已定位：编辑器版本 {}", target.api_version);
-                self.exe_name_input = editor::editor_exe_name(&target.engine_root());
+                if let Ok(engine_root) = target.engine_root() {
+                    self.exe_name_input = editor::editor_exe_name(&engine_root);
+                }
                 self.target = Some(target);
                 self.log("INFO", &format!("已加载项目: {}", root.display()));
                 self.load_mcp_port();
@@ -265,7 +268,9 @@ impl EditorPatchApp {
         if !enabled_here {
             return;
         }
-        let vdir = target.version_dir();
+        let Ok(vdir) = target.version_dir() else {
+            return;
+        };
         if !bridge_deploy::needs_redeploy(&vdir) {
             self.bridge_redeploy_pending = false;
             return;
@@ -291,7 +296,8 @@ impl EditorPatchApp {
     fn mcp_config_path(&self) -> Option<PathBuf> {
         self.target
             .as_ref()
-            .map(|t| t.engine_root().join("logs").join("bgd_csharp").join("config.json"))
+            .and_then(|t| t.engine_root().ok())
+            .map(|r| r.join("logs").join("bgd_csharp").join("config.json"))
     }
 
     /// 从 config.json 读端口到输入框（无配置则用默认 39177）
@@ -678,7 +684,7 @@ impl EditorPatchApp {
                 .and_then(|root| {
                     // 声明了 deploy_bridge_dll 的模块需要引擎版本目录（部署/摘除 dll）
                     let version_dir = if m.deploy_bridge_dll {
-                        let vdir = target.version_dir();
+                        let vdir = target.version_dir()?;
                         if !vdir.is_dir() {
                             return Err(format!(
                                 "引擎版本目录不存在（无法部署 bgd_mcp_bridge.dll）: {}",
@@ -698,6 +704,13 @@ impl EditorPatchApp {
                         m.name,
                         if on { "启用" } else { "关闭" }
                     );
+                    // pie_capture 行为插槽仅随 xdeditor v169 下发，其他版本启用不生效——明确提示
+                    if on && m.id == "pie_capture" {
+                        if let Some(w) = kernel::pie_capture_slot_warning(target) {
+                            self.status = w.clone();
+                            self.log("WARN", &w);
+                        }
+                    }
                     self.log(
                         "INFO",
                         &format!("模块[{}]{}", m.id, if on { "启用" } else { "关闭" }),
@@ -755,7 +768,10 @@ impl EditorPatchApp {
                 if name.is_empty() || !name.ends_with(".exe") {
                     self.status = format!("exe 名无效（需以 .exe 结尾）：{name}");
                 } else if let Some(target) = &self.target {
-                    match editor::set_editor_exe_name(&target.engine_root(), &name) {
+                    match target
+                        .engine_root()
+                        .and_then(|r| editor::set_editor_exe_name(&r, &name))
+                    {
                         Ok(()) => {
                             self.status = format!("编辑器 exe 名已保存为 {name}（editor start 即时生效）");
                             self.log("INFO", &format!("编辑器 exe 名已保存: {name}"));

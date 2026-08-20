@@ -73,18 +73,36 @@ impl EditorTarget {
     }
 
     /// 引擎运行根目录：editor_root 形如 <运行根>/Update/editor-pd.spark.xd.com，
-    /// 运行根即 editor_root 的上两级
-    pub fn engine_root(&self) -> PathBuf {
-        self.editor_root
+    /// 运行根即 editor_root 的上两级。候选根下必须存在 version-<api_version> 目录，
+    /// 否则返回明确错误（路径假设不符时静默回退会让后续 logs/dll 定位全错且不报错）。
+    pub fn engine_root(&self) -> Result<PathBuf, String> {
+        let candidate = self
+            .editor_root
             .parent()
             .and_then(|p| p.parent())
-            .map(|p| p.to_path_buf())
-            .unwrap_or_else(|| self.editor_root.clone())
+            .ok_or_else(|| {
+                format!(
+                    "无法从编辑器根目录推导引擎运行根: {}",
+                    self.editor_root.display()
+                )
+            })?;
+        let version_dir = candidate.join(format!("version-{}", self.api_version));
+        if !version_dir.is_dir() {
+            return Err(format!(
+                "引擎运行根校验失败（其下无 {} 目录）: {}",
+                version_dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+                candidate.display()
+            ));
+        }
+        Ok(candidate.to_path_buf())
     }
 
     /// 引擎版本目录：<运行根>/version-<api_version>（引擎 dll 所在处，如 version-13）
-    pub fn version_dir(&self) -> PathBuf {
-        self.engine_root().join(format!("version-{}", self.api_version))
+    pub fn version_dir(&self) -> Result<PathBuf, String> {
+        Ok(self.engine_root()?.join(format!("version-{}", self.api_version)))
     }
 
     /// 备份分组：<api版本>/<包名_版本>，如 `api13/script_199`
@@ -174,42 +192,44 @@ fn read_api_pak(editor_root: &Path) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|e| format!("解析 {} 失败: {e}", path.display()))
 }
 
-/// 去除 JSON 中的 `//` 行注释与 `/* */` 块注释（容忍手写 tsconfig），字符串内的内容不动
+/// 去除 JSON 中的 `//` 行注释与 `/* */` 块注释（容忍手写 tsconfig），字符串内的内容不动。
+/// 字节层剥离（注释定界符均为 ASCII，不会误伤 UTF-8 多字节序列），最后整体按 UTF-8 组装，
+/// 非 ASCII 内容（如中文路径）原样保留。
 fn strip_json_comments(text: &str) -> String {
     let bytes = text.as_bytes();
-    let mut out = String::with_capacity(text.len());
+    let mut out: Vec<u8> = Vec::with_capacity(text.len());
     let mut i = 0;
     let mut in_string = false;
     while i < bytes.len() {
-        let c = bytes[i] as char;
+        let c = bytes[i];
         if in_string {
             out.push(c);
-            if c == '\\' && i + 1 < bytes.len() {
-                out.push(bytes[i + 1] as char);
+            if c == b'\\' && i + 1 < bytes.len() {
+                out.push(bytes[i + 1]);
                 i += 2;
                 continue;
             }
-            if c == '"' {
+            if c == b'"' {
                 in_string = false;
             }
             i += 1;
             continue;
         }
-        if c == '"' {
+        if c == b'"' {
             in_string = true;
             out.push(c);
             i += 1;
             continue;
         }
         // 行注释
-        if c == '/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+        if c == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
             while i < bytes.len() && bytes[i] != b'\n' {
                 i += 1;
             }
             continue;
         }
         // 块注释
-        if c == '/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+        if c == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
             i += 2;
             while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
                 i += 1;
@@ -220,7 +240,8 @@ fn strip_json_comments(text: &str) -> String {
         out.push(c);
         i += 1;
     }
-    out
+    // 输入是合法 UTF-8 且只删除了完整 ASCII 注释段，输出必然仍是合法 UTF-8
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 #[cfg(test)]
@@ -242,10 +263,33 @@ mod tests {
             editor_root,
             pak: serde_json::json!({}),
         };
-        assert_eq!(target.engine_root(), base);
-        assert_eq!(target.version_dir(), base.join("version-13"));
+        // version-13 不存在：回退被校验拦截，报明确错误（含候选路径）
+        let err = target.engine_root().unwrap_err();
+        assert!(err.contains(base.to_string_lossy().as_ref()), "{err}");
+        // 补齐 version-13 后正常推导
+        std::fs::create_dir_all(base.join("version-13")).unwrap();
+        assert_eq!(target.engine_root().unwrap(), base);
+        assert_eq!(target.version_dir().unwrap(), base.join("version-13"));
 
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// strip_json_comments 必须原样保留非 ASCII 内容（如中文路径），且剥离两类注释
+    #[test]
+    fn test_strip_json_comments_utf8() {
+        let src = "{\n\
+            // 行注释：typeRoots\n\
+            \"compilerOptions\": {\n\
+            /* 块注释 */ \"typeRoots\": [\"D:/编辑器根目录/Update/editor-pd.spark.xd.com/Res/_m/script/\"]\n\
+            }\n\
+            }";
+        let stripped = strip_json_comments(src);
+        let json: Value = serde_json::from_str(&stripped).unwrap();
+        let root = json["compilerOptions"]["typeRoots"][0].as_str().unwrap();
+        assert_eq!(
+            root,
+            "D:/编辑器根目录/Update/editor-pd.spark.xd.com/Res/_m/script/"
+        );
     }
 
     #[test]

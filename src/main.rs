@@ -8,7 +8,7 @@
 //!   sce_app_editor-patch --project-path <DIR> # 宿主启动：直接定位项目
 //!
 //! 本文件为入口聚合：CLI 分发 / 应用状态与后台任务 / ShellApp 壳实现；
-//! 四个标签页 UI 分散在 ui_{kernel,patches,settings,help}.rs（impl EditorPatchApp）。
+//! 四个标签页 UI 分散在 ui/{kernel,patches,settings,help}.rs（impl EditorPatchApp）。
 
 // Windows 下不弹出黑色控制台窗口
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
@@ -16,10 +16,7 @@
 use sce_app_editor_patch::core::{bridge_deploy, editor, kernel, locate, log, modules, EditorTarget};
 
 // 业务 UI 按标签页拆分（impl EditorPatchApp 分散在各文件中）
-mod ui_help;
-mod ui_kernel;
-mod ui_patches;
-mod ui_settings;
+mod ui;
 
 /// windows 子系统下 CLI 输出会被吞；命中 CLI 时附加到父进程控制台
 #[cfg(windows)]

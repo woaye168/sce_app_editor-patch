@@ -18,7 +18,7 @@
 
 ```
 src/main.rs            # 入口（业务 CLI 分发 + bgd_appsdk::app::run 统一入口）+ 应用状态/壳实现
-src/ui_{kernel,patches,settings,help}.rs  # 四个标签页业务 UI（impl EditorPatchApp）
+src/ui/{kernel,patches,settings,help}.rs  # 四个标签页业务 UI（impl EditorPatchApp）
 src/cli.rs             # CLI 子命令（editor/logs/capture）
 src/mcp.rs             # stdio MCP 聚合服务（NDJSON）
 src/core/              # locate/crypto/ops/backup/log/modules/slot_inject/slots（内嵌插槽文件）

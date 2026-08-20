@@ -13,5 +13,6 @@ pub mod log;
 pub mod modules;
 pub mod ops;
 pub mod slot_inject;
+pub mod slots;
 
 pub use locate::{locate, EditorTarget};

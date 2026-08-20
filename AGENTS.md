@@ -17,11 +17,13 @@
 ## 目录结构
 
 ```
-src/main.rs            # 入口（业务 CLI 分发 + bgd_appsdk::app::run 统一入口）+ 业务 UI
+src/main.rs            # 入口（业务 CLI 分发 + bgd_appsdk::app::run 统一入口）+ 应用状态/壳实现
+src/ui_{kernel,patches,settings,help}.rs  # 四个标签页业务 UI（impl EditorPatchApp）
 src/cli.rs             # CLI 子命令（editor/logs/capture）
 src/mcp.rs             # stdio MCP 聚合服务（NDJSON）
-src/core/              # locate/crypto/ops/backup/log/kernel/modules/slot_inject
+src/core/              # locate/crypto/ops/backup/log/modules/slot_inject/slots（内嵌插槽文件）
                        # editor（编辑器生命周期/日志/设置）/bridge_client/capture
+                       # kernel.rs（库登记/状态检查/进度聚合）+ kernel/{apply,restore,tests}.rs
 patches/modules.json   # 模块清单元数据（id/pkg/名称/描述/默认勾选/部署dll/注入声明）
 patches/<包>/<id>/     # 补丁模块 lua（编译期 include_str! 嵌入）
 csharp/bgd_mcp_bridge/ # .NET 9 进程内 MCP 桥（Gateway 架构，编译期嵌入 exe）

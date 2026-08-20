@@ -71,10 +71,11 @@ fn notify_cmd(rest: &[String]) -> Result<serde_json::Value, String> {
     Ok(json!({ "ok": true, "handled": handled }))
 }
 
-/// 向运行中的 GUI 实例发送「刷新」事件（notify 后让其重新加载最近项目）
+/// 向运行中的 GUI 实例发送「刷新」事件（notify 后让其重新加载最近项目）。
+/// 前缀契约：宿主按 `<id>.exe` 落盘，前缀一律由 appsdk 按 exe 名推导（禁止硬编码）。
 fn signal_refresh_event() {
     #[cfg(windows)]
-    bgd_appsdk::single_instance::signal_refresh("sce_app_editor-patch");
+    bgd_appsdk::single_instance::signal_refresh(&bgd_appsdk::app::default_si_prefix());
 }
 
 fn resolve_project(args: &[String]) -> Result<PathBuf, String> {

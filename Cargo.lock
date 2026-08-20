@@ -457,9 +457,9 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bgd_appsdk"
-version = "0.2.5"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "faea03b7a1b43a3661c5edfd938fc048f8958a78d6ef58ab3bed0f828c110bb3"
+checksum = "8a6ff757b43efa81fd717ceb501994ddbea80a27122553253e2fc29f696b25a1"
 dependencies = [
  "eframe",
  "egui",

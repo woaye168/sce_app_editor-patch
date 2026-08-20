@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      # 必须先行：src/core/bridge_deploy.rs 用 include_bytes! 硬嵌入该构建产物，
+      # 本仓库无 build.rs 兜底，缺 dll 时 cargo 无法编译
+      - name: Build bgd_mcp_bridge (.NET)
+        run: dotnet build csharp/bgd_mcp_bridge -c Release -p:Platform=x64 -p:SceHostDir=ci/refs
+
+      # 测试均为临时目录集成测试，不碰真实编辑器
+      # 注意：依赖 bgd_appsdk "0.2" 需已发布到 crates.io（先发 appsdk 再推本仓库）
+      - name: Run tests
+        run: cargo test

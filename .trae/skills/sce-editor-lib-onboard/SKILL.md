@@ -30,7 +30,7 @@ description: "为星火编辑器补丁应用（sce_app_editor-patch）接入新�
 6. **建库知识库**（**必须**，研究方法论见下）：`.trae/skills/sce-lib-<库名>-<版本>/`
 7. **测试**：kernel.rs 集成测试覆盖新库；`cargo test` + `cargo test -- --ignored`
 8. **文档同步**：AGENTS.md（LIBS/目录结构）+ README，同次提交
-9. **发版**：`git tag v0.x.y && git push origin v0.x.y` + bump bgd_sce_plugins registry
+9. **发版**：`git tag v0.x.y && git push origin v0.x.y` + bump bgd_sce_appsdk registry
 
 ## 库源码研究方法论（建知识库时硬性遵守）
 

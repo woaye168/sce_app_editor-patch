@@ -10,8 +10,8 @@
 
 ## 技术栈与规范
 
-- Rust 2021；eframe/egui 0.29；clap；windows-capture + image（截图）；reqwest（桥 HTTP）
-- **bgd_appsdk**（crates.io 公开包 `bgd_appsdk = "0.1"`，仓库 [bgd_sce_appsdk](https://github.com/woaye168/bgd_sce_appsdk)）：单实例/看守线程/日志/应用配置/**通用窗口壳 AppShell** 等公共基建，禁止在本仓库重复实现（UI 经 `ShellApp` trait 注册标签页即可）
+- Rust 2021；eframe/egui 0.29；windows-capture + image（截图）；reqwest（桥 HTTP）；CLI 手写分发（无 clap）
+- **bgd_appsdk**（crates.io 公开包 `bgd_appsdk = "0.2"`，仓库 [bgd_sce_appsdk](https://github.com/woaye168/bgd_sce_appsdk)）：单实例/看守线程/日志/应用配置/**通用窗口壳 AppShell** 等公共基建，禁止在本仓库重复实现（UI 经 `ShellApp` trait 注册标签页即可）。单实例/信号前缀一律由 appsdk 按 exe 名推导（`app::default_si_prefix`），禁止硬编码
 - **模块拆分**：单文件接近 500 行必须按职责拆分。
 
 ## 目录结构

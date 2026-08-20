@@ -175,6 +175,7 @@ FC A8 6D 61 70 5F 72 65 66 5F 72 65 73 2F 74 65  ü¨map_ref_res/te
 | `pak_list` | `pak_list <已解密pak> <out.txt>` | UPAK 索引转清单（offset/size/名字）——初版格式解析漂移促成「4 字节尾校验」发现 |
 | `pak_extract` | `pak_extract <已解密pak> <目录>` | UPAK 全条目解包（含尾校验跳过、防路径穿越 `..`→`__`） |
 | `strings_dump` | `strings_dump <二进制> <out.txt>` | 二进制可打印字符串导出（引擎注册块/属性表考古：lua 名与 C++ 名成对聚集，注册块即 API 全集） |
+| `pe_exports` | `pe_exports <pe文件>` | PE 导出符号表列举（sceengine.dll 3772 个导出即由它实证） |
 
 典型流程：
 

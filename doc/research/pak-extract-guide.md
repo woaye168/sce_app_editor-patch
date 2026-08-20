@@ -62,6 +62,8 @@ N     文件数据区（明文，lua/json/png/ogg/skel 原样）
 | pak_list | `pak_list <已解密pak> <输出txt>` | 只读索引 → 清单（offset/size/路径），不解出文件，用于快速勘察 |
 | pak_extract | `pak_extract <已解密pak> <输出目录>` | 全量解出文件树；防路径穿越（`..` → `__`） |
 | strings_dump | `strings_dump <二进制> <输出txt>` | 附赠：从 exe/dll/pak 里导可打印字符串（不解析格式，纯考古用） |
+| pe_exports | `pe_exports <pe文件>` | 列 PE（exe/dll）导出符号表（判断「能不能 LoadLibrary 直接调」的第一步） |
+| restore_game.py | `python restore_game.py <加密7z> [-o 输出目录]` | **一键全链还原**（Python）：TNND→7z→UPAK→伪KTX 就地解码为 PNG（BC7/DXT1/DXT5/RGBA8/RGB8）。需 `pip install Pillow texture2ddecoder`；伪 KTX 格式说明就在文件头注释里（发布产物的 .png 全是伪 KTX，魔数 `AB 4B 54 58 20 31 31 BB`） |
 
 ## 4. 实操示例
 

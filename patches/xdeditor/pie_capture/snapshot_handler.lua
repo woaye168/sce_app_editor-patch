@@ -1,3 +1,5 @@
+-- 注意：本文件仅供 examples/make_pie_slot 使用（注入模板），**不随 pie_capture 模块部署**
+-- （模块部署文件见 module_files 只挂 main.lua）。
 -- [sce_app_editor-patch/pie_capture] 修复官方拍照：截取「游戏画面 + 游戏 UI」
 -- （官方引擎快照 snapshot_scene_callback 只含 3D 场景，不含游戏 UI 覆盖层）。
 -- 实现：os.execute 调外部捕获（编辑器补丁应用 CLI：WGC 截编辑器主窗口 + PIE 视口控件

@@ -3,7 +3,7 @@
 //! 运行：`sce_app_editor-patch mcp`（由 MCP 客户端按需拉起，NDJSON 行协议，stdout 只写协议帧）。
 //!
 //! 工具集（恒定 8 个）：
-//! - 本地实现（编辑器外）：editor_start / editor_stop / get_logs / capture_game
+//! - 本地实现（编辑器外）：editor_start / editor_stop / get_game_logs / capture_game
 //! - 在线透传 bgd_mcp_bridge：start_debug（默认 restart_last_debug）/ stop_debug /
 //!   publish_project / get_status；编辑器不在线时返回明确错误引导 editor_start
 //!

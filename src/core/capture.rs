@@ -9,7 +9,8 @@
 //!    内容区在帧内底对齐（origin_y = 帧高 − 逻辑高×s；origin_x = (帧宽 − 逻辑宽×s)/2）；
 //! 4. ratio 倍率：裁剪后用 image crate 重采样（Lanczos3）放大/缩小输出。
 //!
-//! 已知边界：编辑器窗口最小化时无帧可截（遮挡可以，最小化不行）。
+//! 窗口最小化/隐藏时由 WindowRestoreGuard 离屏恢复（SHOWNOACTIVATE + 屏外坐标，
+//! 截完按 placement 还原）后正常截取；遮挡无需处理。
 
 use super::bridge_client;
 use super::locate;

@@ -56,7 +56,11 @@ pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, op
         .ok()
         .and_then(|v| v["pid"].as_u64())
         .map(|p| p as u32)
-        .or_else(|| find_editor_pid(&engine_root))
+        .or_else(|| {
+            super::editor::find_editor_pid(
+                &engine_root.join(super::editor::editor_exe_name(&engine_root)),
+            )
+        })
         .ok_or_else(|| anyhow!("找不到编辑器进程"))?;
     let main = find_window_by_class(pid, "WinUIDesktopWin32WindowClass", Some("bgd_mcp_bridge"))
         .ok_or_else(|| anyhow!("找不到编辑器主窗口（pid={pid}）"))?;
@@ -107,38 +111,6 @@ pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, op
 #[cfg(not(windows))]
 pub fn capture_game(_project_root: &Path, _ratio: f64, _out: Option<&Path>) -> Result<Value> {
     Err(anyhow!("仅支持 Windows"))
-}
-
-/// 编辑器进程 pid（离线兜底：按 exe 路径匹配）
-#[cfg(windows)]
-fn find_editor_pid(engine_root: &Path) -> Option<u32> {
-    let exe = engine_root
-        .join(super::editor::editor_exe_name(engine_root))
-        .display()
-        .to_string()
-        .replace('/', "\\")
-        .to_lowercase();
-    let out = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-Command",
-            "Get-CimInstance Win32_Process | Select-Object ProcessId,ExecutablePath | ConvertTo-Json -Compress",
-        ])
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let doc: Value = serde_json::from_str(&text).ok()?;
-    let list = match &doc {
-        Value::Array(a) => a.clone(),
-        Value::Object(_) => vec![doc],
-        _ => return None,
-    };
-    for p in list {
-        if p["ExecutablePath"].as_str().unwrap_or("").to_lowercase() == exe {
-            return p["ProcessId"].as_u64().map(|v| v as u32);
-        }
-    }
-    None
 }
 
 /// 视口映射参数（引擎逻辑坐标 + 倍率）

@@ -177,8 +177,9 @@ pub fn editor_stop(project_root: &Path) -> Result<Value, String> {
     Ok(json!({ "stopped": true, "pid": pid }))
 }
 
-/// 按 exe 全路径找进程 pid（Win32_Process ExecutablePath 匹配，兼容大小写与斜杠）
-fn find_editor_pid(exe_path: &Path) -> Option<u32> {
+/// 按 exe 全路径找进程 pid（Win32_Process ExecutablePath 匹配，兼容大小写与斜杠）。
+/// editor_stop 离线兜底与 capture 截图共用（单一实现）。
+pub fn find_editor_pid(exe_path: &Path) -> Option<u32> {
     let want = exe_path.display().to_string().replace('/', "\\").to_lowercase();
     let out = std::process::Command::new("powershell")
         .args([
@@ -276,7 +277,7 @@ fn file_info(path: &Path, desc: &str, tail_lines: usize) -> Value {
                 + 8 * 3600;
             let days = secs / 86400;
             let rem = secs % 86400;
-            let (y, m, d) = civil_from_days(days);
+            let (y, m, d) = bgd_appsdk::log::civil_from_days(days);
             Value::String(format!(
                 "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
                 rem / 3600,
@@ -306,20 +307,6 @@ fn file_info(path: &Path, desc: &str, tail_lines: usize) -> Value {
         info["truncated"] = Value::Bool(truncated);
     }
     info
-}
-
-/// days-from-unix-epoch → 年月日（Howard Hinnant 算法）
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
-    let z = z + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 fn count_lines(path: &Path) -> Option<usize> {
@@ -392,8 +379,9 @@ mod tests {
 
     #[test]
     fn test_civil_from_days() {
-        assert_eq!(civil_from_days(0), (1970, 1, 1));
-        assert_eq!(civil_from_days(20270), (2025, 7, 1));
+        // 算法单一真相在 bgd_appsdk::log（此处守护调用约定的换算结果）
+        assert_eq!(bgd_appsdk::log::civil_from_days(0), (1970, 1, 1));
+        assert_eq!(bgd_appsdk::log::civil_from_days(20270), (2025, 7, 1));
     }
 
     #[test]

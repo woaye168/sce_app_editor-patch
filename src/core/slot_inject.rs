@@ -7,12 +7,8 @@
 //!
 //! 处理链：解密（TNND 头则解）→ 若 UTF-8 非法则按 GBK 转 UTF-8 → 注入/解锁变换。
 
+use super::crypto;
 use sha2::{Digest, Sha256};
-
-/// 加密文件 magic 头
-const MAGIC: [u8; 4] = *b"TNND";
-/// XOR 密钥
-const KEY: [u8; 10] = *b"CREATEEASY";
 
 /// 插槽开始/结束标记（注入块包裹标记）
 pub const INJECT_BEGIN: &str = "-->> sce_app_editor-patch >>";
@@ -20,15 +16,11 @@ pub const INJECT_END: &str = "--<< sce_app_editor-patch <<";
 /// 解锁行标记前缀（isolation.lua 每个被解禁行的行首注释）
 pub const UNLOCK_MARK: &str = "-- [sce_app_editor-patch 解锁] ";
 
-/// 解码官方源文本：XOR 解密（按 magic 逐文件判断）→ UTF-8 非法则 GBK 转 UTF-8。
-/// 明文输入原样返回（尽力 UTF-8，否则 GBK 转换）。
+/// 解码官方源文本：XOR 解密（按 magic 逐文件判断，密钥单一真相在 crypto 模块）→
+/// UTF-8 非法则 GBK 转 UTF-8。明文输入原样返回（尽力 UTF-8，否则 GBK 转换）。
 pub fn decode_source(raw: &[u8]) -> String {
-    let bytes: Vec<u8> = if raw.starts_with(&MAGIC) {
-        raw[4..]
-            .iter()
-            .enumerate()
-            .map(|(i, b)| b ^ KEY[i % KEY.len()])
-            .collect()
+    let bytes: Vec<u8> = if crypto::is_encrypted(raw) {
+        crypto::decrypt(raw).unwrap_or_else(|_| raw.to_vec())
     } else {
         raw.to_vec()
     };

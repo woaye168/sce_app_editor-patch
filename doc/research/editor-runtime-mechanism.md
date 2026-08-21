@@ -137,10 +137,11 @@ _G.IP = editor-pd.spark.xd.com（编辑器环境）
   → editor- 换 editor. → editor.pd.spark.xd.com
   → 首段换成服务名：publisher-pd.spark.xd.com（production→pd）
   → pd 在 need_use_new_domain 名单 → spark.xd.com 换 tapsce.cn
-  → 命中映射走 https：
-    publisher = https://publisher-pd.tapsce.cn:9000
-    updater   = https://updater-pd.tapsce.cn:9002   （/api/map/api-version 查最新 api）
-    login     = https://login-pd.tapsce.cn:9011     （/api/v1/bind-3rd-account 等）
+  → 命中映射走 https。
+  ⚠️ 2026-08-21 实测修正：新域名（tapsce.cn）统一走 443，不带端口；
+     publisher/updater/login = https://<服务>-pd.tapsce.cn
+     （calc_http_server_address 的 default_port 9000/9002/9011 是旧域名时代遗留，实测全部超时；
+      443 实测 POST /api/map/api-version 返回 200——sce_app_mini-runtime 0.1.0 已实证签名通过）
 ```
 
 | API | 方法 | 说明 |
@@ -240,7 +241,7 @@ D:\sce_online\星火编辑器.exe -inner -winui_material_editor -winui_resource_
 
 ## 6. 自托管「最小编辑器」评估（用户线索深挖，2026-08-21 追加）
 
-> 线索来源：用户提供的依赖清单路径 + restore_game.py（examples/ 新增的一键还原工具，含伪 KTX 解码）。
+> 线索来源：用户提供的依赖清单路径 + restore_game.rs（examples/ 新增的一键还原工具，含伪 KTX 解码）。
 
 ### 6.1 包依赖清单与定位链（全部实证）
 
@@ -269,9 +270,9 @@ D:\sce_online\星火编辑器.exe -inner -winui_material_editor -winui_resource_
 | 打图集/Ref（preprocess_game/generate_ref） | native（DebugManager/MapBuilder） | CommandTool.exe（-ExeFunc=MapRef/TextureCompress...）或先跳过实测 |
 | 编辑器 UI 层（upload_map_view 等） | xdeditor 纯 Lua | **不需要**——直接调 common/upload 的 upload_map(params)，绕开 UI 层 |
 
-### 6.3 发布对资源的转换（restore_game.py 佐证的新事实）
+### 6.3 发布对资源的转换（restore_game.rs 佐证的新事实）
 
-- **发布产物里的 `.png` 全部是伪 KTX**（p_55a3.pak 三处抽查，魔数 `AB 4B 54 58 20 31 31 BB 0D 0A 1A 0A` + `01 02 03 04`）：BC7/DXT/RGBA8 纹理格式，BC 系 R/B 通道互换。restore_game.py 已含解码器（偏移 28=internalFormat，36/40=宽高，64=imgSize（最低位=pad 标志），68+pad=数据）。
+- **发布产物里的 `.png` 全部是伪 KTX**（p_55a3.pak 三处抽查，魔数 `AB 4B 54 58 20 31 31 BB 0D 0A 1A 0A` + `01 02 03 04`）：BC7/DXT/RGBA8 纹理格式，BC 系 R/B 通道互换。restore_game.rs 已含解码器（偏移 28=internalFormat，36/40=宽高，64=imgSize（最低位=pad 标志），68+pad=数据）。
 - 未定性：PNG→伪KTX 的转码发生在客户端发布期（CommandTool TextureCompress？）还是服务端。**本地 PIE 读明文 PNG 正常**，说明运行时兼容明文——自托管发布若跳过转码，服务端/运行时是否接受需实测（最坏情况：用 CommandTool 的 TextureCompressBatchProcessing 补这一步）。
 
 ### 6.4 结论

@@ -456,6 +456,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "bcdec_rs"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9934c2b68e46448d814db20e34a840ef9b4e7b3b7c8b1da91161481230f6350"
+
+[[package]]
 name = "bgd_appsdk"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3104,6 +3110,7 @@ name = "sce_app_editor-patch"
 version = "0.0.0-dev"
 dependencies = [
  "anyhow",
+ "bcdec_rs",
  "bgd_appsdk",
  "eframe",
  "egui",

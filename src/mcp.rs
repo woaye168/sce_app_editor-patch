@@ -2,10 +2,13 @@
 //!
 //! 运行：`sce_app_editor-patch mcp`（由 MCP 客户端按需拉起，NDJSON 行协议，stdout 只写协议帧）。
 //!
-//! 工具集（恒定 8 个）：
+//! 工具集（恒定 14 个，静态列表）：
 //! - 本地实现（编辑器外）：editor_start / editor_stop / get_game_logs / capture_game
 //! - 在线透传 bgd_mcp_bridge：start_debug（默认 restart_last_debug）/ stop_debug /
 //!   publish_project / get_status；编辑器不在线时返回明确错误引导 editor_start
+//! - 在线透传桥 Gateway 元工具（0.7.2 起）：search_capabilities / describe_capability /
+//!   invoke_capability / list_namespaces / get_events / set_suppress —— 编辑器完整能力
+//!   （能力目录数百条）经 search → invoke 两步触达；离线同样报错引导 editor_start
 //!
 //! project_path 缺省规则：参数 > 应用记住的最近项目（config.json last_project_path，GUI 选过项目即写入）
 //! > 在线编辑器当前地图（get_status.map_path）。
@@ -120,6 +123,30 @@ fn tool_capture_game(args: &Value) -> Result<Value> {
     capture::capture_game(&project, ratio, None)
 }
 
+// ---------------------------------------------------------------- 桥 Gateway 元工具透传
+
+/// 透传桥 Gateway 元工具：剥离 project_path 后原样转发 params。
+/// timeout_ms 为客户端总超时（invoke_capability 按 params.timeout_ms + 缓冲计算）。
+fn tool_bridge_meta(args: &Value, method: &str) -> Result<Value> {
+    let project = resolve_project(Some(args))?;
+    let port = require_online(&project)?;
+    let mut params = args.clone();
+    if let Some(o) = params.as_object_mut() {
+        o.remove("project_path");
+    }
+    let timeout_ms = if method == "invoke_capability" {
+        // 桥内默认 5000；客户端放宽缓冲（与 bridge_invoke 一致 +5s）
+        params
+            .get("timeout_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(5_000)
+            + 5_000
+    } else {
+        30_000
+    };
+    bridge_client::bridge_rpc(port, method, params, timeout_ms)
+}
+
 // ---------------------------------------------------------------- MCP 协议
 
 fn tools_list() -> Value {
@@ -132,7 +159,13 @@ fn tools_list() -> Value {
             {"name":"get_game_logs","description":"获取游戏日志/编辑器日志/MCP桥日志的最新文件信息（路径/大小/创建时间/修改时间/行数/说明）。tail_lines=0（默认）只返回文件信息不返回内容防爆上下文，需要内容时传 tail_lines 或按路径自行读取。离线可用（不要求编辑器在线）。source 取值：game_client/game_server/service_core/xdeditor_client/bridge_main/bridge_audit，或聚合前缀（如 game 命中 game_client+game_server、bridge 命中 bridge_main+bridge_audit），或 all；缺省 game","inputSchema":{"type":"object","properties":{"source":{"type":"string","default":"game","description":"日志源 key 或聚合前缀，缺省 game"},"tail_lines":{"type":"integer","default":0,"description":"返回末尾行数，0=只返回文件信息"}}}},
             {"name":"publish_project","description":"发布项目到创作者中心（分钟级耗时；需在桥 config.json danger_allow 放行 lua.publish_project）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"timeout_ms":{"type":"integer","default":600000}}}},
             {"name":"capture_game","description":"截取调试中的游戏画面/游戏截图（纯游戏画面+游戏 UI，不含编辑器界面；编辑器被遮挡/最小化均可后台截取），返回 png 路径，用 Read 查看。ratio 输出倍率（0.5/1/2/3/4）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"ratio":{"type":"number","default":1}}}},
-            {"name":"get_status","description":"获取编辑器状态（地图路径/调试中/弹窗抑制）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}}
+            {"name":"get_status","description":"获取编辑器状态（地图路径/调试中/弹窗抑制）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
+            {"name":"search_capabilities","description":"[在线透传桥 Gateway] 搜索编辑器能力（id/描述/别名/标签模糊匹配）。返回简化签名+风险级别，多数场景 search→invoke 两步完成调用；编辑器完整能力（能力目录数百条）都经此触达","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"query":{"type":"string","description":"关键词，可多个（空格分隔）"},"limit":{"type":"integer","description":"返回条数，默认 5，上限 10"}},"required":["query"]}},
+            {"name":"describe_capability","description":"[在线透传桥 Gateway] 查看能力完整定义（参数 JSON Schema/返回/风险/示例/前置条件），疑难时深查","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"id":{"type":"string","description":"能力 id（search 返回的）"}},"required":["id"]}},
+            {"name":"invoke_capability","description":"[在线透传桥 Gateway] 统一调用入口。参数校验失败时错误内嵌 compact schema，按提示修正后重试即可","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"id":{"type":"string"},"args":{"type":"object","description":"调用参数"},"timeout_ms":{"type":"integer","description":"超时毫秒，默认 5000"}},"required":["id"]}},
+            {"name":"list_namespaces","description":"[在线透传桥 Gateway] 列出能力命名空间（svc/cpp/datacore/cmd/lua/sys）及各空间能力数","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
+            {"name":"get_events","description":"[在线透传桥 Gateway] 拉取事件缓冲中 seq > since 的事件（地图加载/调试启动/弹窗抑制/能力调用失败/danger 拒绝等）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"since":{"type":"integer"}}}},
+            {"name":"set_suppress","description":"[在线透传桥 Gateway] 设置编辑器弹窗抑制开关（抑制期间弹窗自动按确认/关闭处理）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"enabled":{"type":"boolean"}},"required":["enabled"]}}
         ]
     })
 }
@@ -147,6 +180,11 @@ fn call_tool(name: &str, args: &Value) -> Result<Value> {
         "publish_project" => tool_publish_project(args),
         "capture_game" => tool_capture_game(args),
         "get_status" => tool_get_status(args),
+        // 桥 Gateway 元工具透传（编辑器完整能力入口）
+        "search_capabilities" | "describe_capability" | "invoke_capability"
+        | "list_namespaces" | "get_events" | "set_suppress" => {
+            tool_bridge_meta(args, name)
+        }
         _ => Err(anyhow!("unknown tool: {name}")),
     }
 }

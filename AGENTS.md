@@ -6,7 +6,7 @@
 
 独立的 egui 桌面应用（中文名「编辑器补丁」）：给**星火编辑器**打补丁——把目标库**整库解密为裸露源码**、在库入口注入补丁插槽、解除使用限制，支持按库分组的可勾选补丁模块。通过宿主 [bgd_sce_tools](https://github.com/woaye168/bgd_sce_tools) 的「应用市场」安装分发（registry 在 [bgd_sce_appsdk](https://github.com/woaye168/bgd_sce_appsdk)），宿主启动时传 `--project-path <项目根>`。
 
-**同时是 AGENT 操作编辑器的唯一 MCP 入口**：`sce_app_editor-patch mcp`（stdio，恒定 8 工具：editor_start/editor_stop/get_game_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge）。同名 CLI 子命令 `editor start|stop`、`logs`、`capture`、`notify <key>=<value>`（宿主解耦通知：切项目时更新运行时共享常量 bgd_runtime.lua + 最近项目 + 通知 GUI 刷新）供人类/脚本直接用。应用单实例；`--background` 静默驻留（看守线程 Win32 SW_HIDE/SW_RESTORE 驱动主窗口——egui 隐藏时事件循环休眠，不能依赖 ViewportCommand），驻留模式窗口 X = 隐藏（假关闭，服务常开，再次打开经 show 信号唤出），真退出只走宿主 `--quit`；前台启动窗口 X = 正常退出。bridge dll 部署失败（编辑器占用）时置待重部署标志，update 每 5s 自动重试。
+**同时是 AGENT 操作编辑器的唯一 MCP 入口**：`sce_app_editor-patch mcp`（stdio，恒定 14 工具：editor_start/editor_stop/get_game_logs/capture_game 本地实现 + start_debug/stop_debug/publish_project/get_status 在线透传编辑器内 bgd_mcp_bridge + search_capabilities/describe_capability/invoke_capability/list_namespaces/get_events/set_suppress 在线透传桥 Gateway 元工具——编辑器完整能力目录经 search→invoke 触达，stdio 客户端无需直连桥 HTTP 端点）。同名 CLI 子命令 `editor start|stop`、`logs`、`capture`、`notify <key>=<value>`（宿主解耦通知：切项目时更新运行时共享常量 bgd_runtime.lua + 最近项目 + 通知 GUI 刷新）供人类/脚本直接用。应用单实例；`--background` 静默驻留（看守线程 Win32 SW_HIDE/SW_RESTORE 驱动主窗口——egui 隐藏时事件循环休眠，不能依赖 ViewportCommand），驻留模式窗口 X = 隐藏（假关闭，服务常开，再次打开经 show 信号唤出），真退出只走宿主 `--quit`；前台启动窗口 X = 正常退出。bridge dll 部署失败（编辑器占用）时置待重部署标志，update 每 5s 自动重试。
 
 ## 技术栈与规范
 

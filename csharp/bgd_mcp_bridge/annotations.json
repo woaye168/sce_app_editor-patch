@@ -1,19 +1,9 @@
 {
   "_comment": "人工标注层（0.5.0，仓库长期资产）：服务准入/中文描述/别名/标签/风险/黑名单。描述质量决定 AI 搜索命中率。catalog.json 重生成不会丢本文件。",
 
-  "services": {
-    "SCE.CppInterface.FileSystem": {
-      "admitted": true,
-      "description": "文件系统服务（已准入：read 级方法已在隔离地图逐个实调无崩溃）"
-    }
-  },
+  "services": {},
 
-  "blacklist": [
-    "svc.FileSystem.SystemCommand",
-    "svc.FileSystem.SystemRun",
-    "svc.FileSystem.SystemOpen",
-    "svc.FileSystem.SetUpdateIp"
-  ],
+  "blacklist": [],
 
   "entries": {
     "datacore.list_entries": {
@@ -64,13 +54,13 @@
       "risk": "write"
     },
     "lua.run_lua": {
-      "description": "兜底逃生舱：pcall 执行任意 Lua 代码（默认 danger 关闭，需 config.json danger_allow 放行）",
+      "description": "兜底逃生舱：pcall 执行任意 Lua 代码（danger 级，0.8.0 起默认放行；调用进审计日志）",
       "aliases": ["run_lua", "eval_lua"],
       "tags": ["lua", "逃生舱"],
       "risk": "danger"
     },
     "lua.publish_project": {
-      "description": "发布项目到创作者中心（EDITOR.upload_map promise 通道，先保存地图；分钟级耗时，调用方需放大 timeout_ms 如 600000）",
+      "description": "发布项目到创作者中心（EDITOR.upload_map promise 通道，先保存地图；分钟级耗时，调用方需放大 timeout_ms 如 600000；danger 级默认放行）",
       "aliases": ["publish_project", "发布项目", "上传项目", "publish"],
       "tags": ["发布", "上传"],
       "risk": "danger",
@@ -91,6 +81,75 @@
       "tags": ["截图", "视口", "调试"],
       "risk": "read"
     },
+    "lua.find_ui": {
+      "description": "查询 UI 控件（按 id/显示文本子串模糊匹配，返回逻辑坐标 rect 与可点/可输入/可按住标记；文本命中叶子时附 clickable_ancestor 可直接点击；kind=click/input 快速盘点可交互元素；scope=editor 查编辑器 UI）。UI 调试闭环第一步：find_ui 定位 → click_ui/input_text 操作 → capture_game(crop) 验证",
+      "aliases": ["find_ui", "查控件", "找控件", "坐标", "查找", "按钮在哪", "定位"],
+      "tags": ["UI", "控件", "调试", "坐标"],
+      "risk": "read",
+      "precondition": "游戏侧需调试进行中（游戏项目含 dbg_bus 模块，bgd 框架 0.8.0+）",
+      "example": "{\"id\":\"lua.find_ui\",\"args\":{\"q\":\"商店\"}}"
+    },
+    "lua.click_ui": {
+      "description": "按 id 点击游戏 UI 控件（cgui 调试反射回调，等价真实点击的业务效果；仅 find_ui clickable=true 的控件可点）",
+      "aliases": ["click_ui", "点控件", "点击按钮", "按id点击"],
+      "tags": ["UI", "点击", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中；目标控件 clickable=true",
+      "example": "{\"id\":\"lua.click_ui\",\"args\":{\"id\":\"entry\"}}"
+    },
+    "lua.click_at": {
+      "description": "按游戏视口逻辑坐标点击（命中最内层可点击控件；坐标与 find_ui rect 同系）",
+      "aliases": ["click_at", "坐标点击", "点坐标"],
+      "tags": ["UI", "点击", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中",
+      "example": "{\"id\":\"lua.click_at\",\"args\":{\"x\":2250,\"y\":52}}"
+    },
+    "lua.input_text": {
+      "description": "输入框文本输入（直接触发 on_input，等价人工输入完整文本；仅 find_ui inputable=true 的控件）",
+      "aliases": ["input_text", "输入文本", "填输入框", "打字"],
+      "tags": ["UI", "输入", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中；目标控件 inputable=true",
+      "example": "{\"id\":\"lua.input_text\",\"args\":{\"id\":\"amount\",\"text\":\"100\"}}"
+    },
+    "lua.game_info": {
+      "description": "游戏侧信息：游戏 VM 逻辑分辨率（find_ui rect / click_at / capture_game crop 的坐标系基准）与 VM 名",
+      "aliases": ["game_info", "游戏分辨率", "逻辑分辨率"],
+      "tags": ["状态", "坐标", "调试"],
+      "risk": "read",
+      "precondition": "调试进行中"
+    },
+    "lua.press_ui": {
+      "description": "按住控件（语义模拟，持续生效直到 release_ui）：虚拟摇杆按 x/y 方向持续输入（测移动），等价真人按住摇杆",
+      "aliases": ["press_ui", "按住", "摇杆", "按下"],
+      "tags": ["UI", "按住", "摇杆", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中；目标控件 pressable=true（joystick 类）",
+      "example": "{\"id\":\"lua.press_ui\",\"args\":{\"id\":\"joystick\",\"x\":1,\"y\":0}}"
+    },
+    "lua.release_ui": {
+      "description": "松开控件（解除 press_ui 的模拟按住，触发 on_release）",
+      "aliases": ["release_ui", "松开", "抬起"],
+      "tags": ["UI", "松开", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中；此前对该控件 press_ui 过",
+      "example": "{\"id\":\"lua.release_ui\",\"args\":{\"id\":\"joystick\"}}"
+    },
+    "lua.long_press_ui": {
+      "description": "长按控件（调 on_long_press 回调，等价长按到触发）",
+      "aliases": ["long_press_ui", "长按"],
+      "tags": ["UI", "长按", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中；目标控件 long_pressable=true",
+      "example": "{\"id\":\"lua.long_press_ui\",\"args\":{\"id\":\"entry\"}}"
+    },
+    "lua.hover_ui": {
+      "description": "悬停/移入（暂无法模拟：引擎输入为每帧拉取真实指针，脚本层不可注入；调用返回原因与替代方案）",
+      "aliases": ["hover_ui", "悬停", "移入", "hover"],
+      "tags": ["UI", "悬停", "调试"],
+      "risk": "read"
+    },
     "sys.server_info": {
       "description": "服务自身信息（版本/端口/目录规模/漂移状态）",
       "aliases": ["server_info"],
@@ -99,60 +158,7 @@
     },
 
     "svc.FileSystem.FileExists": {
-      "description": "判断文件是否存在",
-      "aliases": ["file_exists", "文件存在"],
-      "tags": ["文件"],
-      "risk": "read",
-      "example": "{\"id\":\"svc.FileSystem.FileExists\",\"args\":{\"fileName\":\"D:/test/test.txt\"}}"
-    },
-    "svc.FileSystem.DirExists": {
-      "description": "判断目录是否存在",
-      "aliases": ["dir_exists", "目录存在"],
-      "tags": ["文件", "目录"],
-      "risk": "read"
-    },
-    "svc.FileSystem.ScanDir": {
-      "description": "扫描目录下文件列表（filter 如 *.*，flags 0=文件 1=目录 2=隐藏组合，recursive 递归）",
-      "aliases": ["scan_dir", "list_files", "列目录"],
-      "tags": ["文件", "目录"],
-      "risk": "read",
-      "example": "{\"id\":\"svc.FileSystem.ScanDir\",\"args\":{\"pathName\":\"D:/test\",\"filter\":\"*.*\",\"flags\":0,\"recursive\":false}}"
-    },
-    "svc.FileSystem.Copy": {
-      "description": "复制文件",
-      "aliases": ["copy_file", "复制文件"],
-      "tags": ["文件"],
-      "risk": "write"
-    },
-    "svc.FileSystem.Delete": {
-      "description": "删除文件",
-      "aliases": ["delete_file", "unlink", "删除文件"],
-      "tags": ["文件"],
-      "risk": "danger"
-    },
-    "svc.FileSystem.DeleteDir": {
-      "description": "删除目录",
-      "aliases": ["delete_dir", "删除目录"],
-      "tags": ["文件", "目录"],
-      "risk": "danger"
-    },
-    "svc.FileSystem.GetResourceDir": {
-      "description": "获取引擎资源根目录",
-      "aliases": ["resource_dir", "资源目录"],
-      "tags": ["路径"],
-      "risk": "read"
-    },
-    "svc.FileSystem.GetTemporaryDir": {
-      "description": "获取临时目录",
-      "aliases": ["temp_dir", "临时目录"],
-      "tags": ["路径"],
-      "risk": "read"
-    },
-    "svc.FileSystem.GetLastModifiedTime": {
-      "description": "获取文件最后修改时间",
-      "aliases": ["last_modified", "修改时间"],
-      "tags": ["文件"],
-      "risk": "read"
+      "_deprecated": "0.8.0 起 svc.FileSystem 整体从能力目录剔除（AI 用自身文件工具即可），本组标注仅存档不再生效"
     },
 
     "cpp.ApplicationExport.GetMapPath": {

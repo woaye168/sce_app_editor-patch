@@ -11,7 +11,7 @@
   - `script` 库：解锁 `isolation.lua` 中被官方置 `nil` 禁用的 `io`/`os`/`debug` 等函数；
   - 每个库入口注入补丁插槽（`sce_app_editor-patch` 框架），并在库下创建补丁目录。
 - **补丁模块（按库分组，可勾选）**：
-  - xdeditor / `MCP 桥（外部 AI 控制）`：在编辑器进程内注入并启动 C# 扩展（bgd_mcp_bridge.dll），于 127.0.0.1 暴露 HTTP JSON-RPC 与 MCP 服务，供外部 AI 调用编辑器命令（启动/停止调试、文件操作等）并拉取编辑器事件；勾选时自动部署 dll 并登记 sce.deps.json，取消勾选摘除，「还原补丁」整体恢复；
+  - xdeditor / `MCP 桥（外部 AI 控制）`：在编辑器进程内注入并启动 C# 扩展（bgd_mcp_bridge.dll），于 127.0.0.1 暴露 HTTP JSON-RPC 与 MCP 服务，供外部 AI 调用编辑器命令（启动/停止调试等）并拉取编辑器事件；0.8.0 起支持 **UI 闭环调试**（lua.find_ui 定位 → click_ui/input_text/press_ui 操作 → capture_game 局部截图验证，游戏侧经 lobby 跨 VM 总线直达）与 MCP 上下文护栏（32KB 截断/日志 match+errors 上浮/截图 crop+max_width）；勾选时自动部署 dll 并登记 sce.deps.json，取消勾选摘除，「还原补丁」整体恢复；
   - xdeditor / `解除项目文件监听`：移除并拦截编辑器对项目目录的文件监听，外部（如 AI Agent）修改项目文件时不再弹出重载提示；项目根来自运行时共享常量 bgd_runtime.lua（宿主切换项目时自动更新）；
   - xdeditor / `帮助菜单 bgd_sce_tools 入口`（默认开启）：编辑器顶部菜单「帮助」下新增子菜单，点击打开仓库；
   - script / `示例补丁`：验证补丁链路。

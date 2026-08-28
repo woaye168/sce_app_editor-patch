@@ -78,10 +78,16 @@ fn module_files(id: &str) -> &'static [(&'static str, &'static str)] {
         "hello" => &[("main.lua", include_str!("../../patches/script/hello/main.lua"))],
         "unwatch" => &[("main.lua", include_str!("../../patches/xdeditor/unwatch/main.lua"))],
         "menu_bgd" => &[("main.lua", include_str!("../../patches/xdeditor/menu_bgd/main.lua"))],
-        "bgd_mcp_bridge" => &[(
-            "main.lua",
-            include_str!("../../patches/xdeditor/bgd_mcp_bridge/main.lua"),
-        )],
+        "bgd_mcp_bridge" => &[
+            (
+                "main.lua",
+                include_str!("../../patches/xdeditor/bgd_mcp_bridge/main.lua"),
+            ),
+            (
+                "ui_loop.lua",
+                include_str!("../../patches/xdeditor/bgd_mcp_bridge/ui_loop.lua"),
+            ),
+        ],
         "pie_capture" => &[(
             "main.lua",
             include_str!("../../patches/xdeditor/pie_capture/main.lua"),

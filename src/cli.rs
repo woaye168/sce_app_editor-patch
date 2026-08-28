@@ -2,7 +2,7 @@
 //!
 //! 用法：
 //!   sce_app_editor-patch editor start|stop [--project-path <项目根>] [--no-wait]
-//!   sce_app_editor-patch logs [client|server|bridge|all] [行数] [--project-path <项目根>]
+//!   sce_app_editor-patch logs [client|server|bridge|all] [行数] [match正则] [--project-path <项目根>]
 //!   sce_app_editor-patch capture [--ratio <倍率>] [--project-path <项目根>]
 //!   sce_app_editor-patch notify <key>=<value> [...]   # 宿主通知（切项目等）
 //!   sce_app_editor-patch mcp        # stdio MCP 聚合服务（AI 客户端配置入口）
@@ -121,7 +121,7 @@ pub fn run(args: &[String]) -> i32 {
             }
             let source = positional.first().map(|s| s.as_str()).unwrap_or("");
             let tail: usize = positional.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-            resolve_project(rest).and_then(|p| editor::get_game_logs(&p, &source, tail))
+            resolve_project(rest).and_then(|p| editor::get_game_logs(&p, &source, tail, None))
         }
         "capture" => {
             let ratio: f64 = parse_flag(rest, "--ratio")

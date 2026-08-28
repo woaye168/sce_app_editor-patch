@@ -8,7 +8,7 @@ namespace BgdMcpBridge;
 /// 全部能力经能力目录 search → describe（可选）→ invoke 链路调用。
 /// - search 即得简化签名，多数场景 search → invoke 两步完成；
 /// - invoke 参数校验失败时错误响应内嵌 compact schema（自愈反馈，AI 下一轮自我修正）；
-/// - danger 级能力默认拒绝，需在 config.json danger_allow 显式放行；
+/// - danger 级能力 0.8.0 起默认放行（AI 排障刚需），config.json danger_deny 可显式拒绝；
 /// - write/danger 调用全部进审计日志。
 /// </summary>
 public sealed class Gateway
@@ -100,7 +100,7 @@ public sealed class Gateway
         };
         if (entry.Unsupported) result["unsupported_reason"] = entry.UnsupportedReason ?? "该签名不可开放";
         if (!available) result["unavailable_reason"] = "当前编辑器版本不可用（条目与运行时不匹配），请重跑生成工具";
-        if (_catalog.EffectiveRisk(entry) == "danger") result["danger_hint"] = "danger 级默认拒绝，需在 config.json danger_allow 显式放行";
+        if (_catalog.EffectiveRisk(entry) == "danger") result["danger_hint"] = "danger 级（0.8.0 起默认放行；config.json danger_deny 可显式拒绝；调用进审计日志）";
         return OpResult.Success(result);
     }
 
@@ -146,12 +146,12 @@ public sealed class Gateway
 
         // 安全分级：danger 默认拒绝，需配置文件显式放行
         var risk = _catalog.EffectiveRisk(entry);
-        if (risk == "danger" && !IsDangerAllowed(id))
+        if (risk == "danger" && IsDangerDenied(id))
         {
             try { _events.Push("bridge", "danger_denied", id); } catch { }
             AuditLog.Record(id, risk, JsonOut.Stringify(args), 0, "DANGER_DENIED");
-            return OpResult.Fail("DANGER_DENIED", $"danger 级能力默认拒绝: {id}",
-                "在 <引擎运行根>/logs/bgd_csharp/config.json 的 danger_allow 数组中显式放行该能力 id（或前缀*）后重试");
+            return OpResult.Fail("DANGER_DENIED", $"danger 级能力已被 config.json danger_deny 显式拒绝: {id}",
+                "从 <引擎运行根>/logs/bgd_csharp/config.json 的 danger_deny 数组移除该能力 id（或匹配前缀）后重试");
         }
 
         // 运行期惰性校验
@@ -235,10 +235,11 @@ public sealed class Gateway
         });
     }
 
-    // ---------------- danger 放行清单 ----------------
+    // ---------------- danger 策略（0.8.0 起默认放行） ----------------
 
-    /// <summary>读 config.json 的 danger_allow 数组（精确 id 或 前缀* 匹配），每次实时读（小文件，改动即生效）。</summary>
-    private static bool IsDangerAllowed(string id)
+    /// <summary>0.8.0 起 danger 级默认放行（这些能力都是 AI 排障常用刚需）；
+    /// config.json 的 danger_deny 数组可显式拒绝（精确 id 或 前缀* 匹配），每次实时读。</summary>
+    private static bool IsDangerDenied(string id)
     {
         try
         {
@@ -247,8 +248,8 @@ public sealed class Gateway
             var cfgPath = Path.Combine(root, "logs", "bgd_csharp", "config.json");
             if (!File.Exists(cfgPath)) return false;
             var doc = JsonNode.Parse(File.ReadAllText(cfgPath)) as JsonObject;
-            if (doc?["danger_allow"] is not JsonArray allow) return false;
-            foreach (var item in allow)
+            if (doc?["danger_deny"] is not JsonArray deny) return false;
+            foreach (var item in deny)
             {
                 var s = item?.GetValue<string>();
                 if (string.IsNullOrEmpty(s)) continue;
@@ -261,7 +262,7 @@ public sealed class Gateway
         }
         catch (Exception ex)
         {
-            Logger.Warn($"danger_allow 读取失败: {ex.Message}");
+            Logger.Warn($"danger_deny 读取失败: {ex.Message}");
         }
         return false;
     }

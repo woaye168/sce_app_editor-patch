@@ -254,8 +254,8 @@ handlers.list_commands = function()
     return list_commands()
 end
 
--- run_lua 兜底逃生舱（0.5.0 M7）：pcall 执行任意 Lua。默认 danger 级关闭，
--- 需在 <引擎运行根>/logs/bgd_csharp/config.json 的 danger_allow 放行「lua.run_lua」。
+-- run_lua 兜底逃生舱（0.5.0 M7）：pcall 执行任意 Lua。danger 级 0.8.0 起默认放行
+-- （config.json danger_deny 可显式拒绝；调用进审计日志）。
 handlers.run_lua = function(params)
     if type(params) ~= 'table' or type(params.code) ~= 'string' then
         error('params.code 缺失或非法')
@@ -409,6 +409,32 @@ handlers.capture_game = function(params, id)
         end
     end)
     return DEFERRED
+end
+
+-- ===== 0.8.0 R2/R3：UI 闭环调试（find_ui/click_ui/input_text/press_ui 等，实现拆在 ui_loop.lua） =====
+do
+    local ok, ui_loop = pcall(require, 'sce_app_editor-patch.bgd_mcp_bridge.ui_loop')
+    if ok and type(ui_loop) == 'table' and type(ui_loop.setup) == 'function' then
+        local h = ui_loop.setup({
+            send_ack = send_ack,
+            deferred = DEFERRED,
+            logi = logi,
+            is_debugging = function()
+                local debugging = false
+                pcall(function()
+                    debugging = pluginMgr and pluginMgr:is_plugin_ui_loaded('GamePlayInEditor')
+                end)
+                return debugging and true or false
+            end,
+        })
+        if type(h) == 'table' then
+            for k, v in pairs(h) do
+                handlers[k] = v
+            end
+        end
+    else
+        logi('ui_loop 加载失败，UI 闭环调试能力停用: ' .. tostring(ui_loop))
+    end
 end
 
 if eventMgr then

@@ -1,786 +1,7 @@
 {
   "engine_version": "13",
-  "generated_at": "2026-08-19 08:10:57",
+  "generated_at": "2026-08-29 02:35:28",
   "capabilities": [
-    {
-      "id": "svc.FileSystem.SetCurrentDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SetCurrentDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "pathName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.CreateDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "CreateDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "pathName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.SetExecuteConsoleCommands",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SetExecuteConsoleCommands",
-      "assembly": "sce",
-      "static": false,
-      "returns": "void",
-      "risk": "write",
-      "params": [
-        {
-          "name": "enable",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.SystemCommand",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SystemCommand",
-      "assembly": "sce",
-      "static": false,
-      "returns": "int",
-      "risk": "danger",
-      "params": [
-        {
-          "name": "commandLine",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "redirectStdOutToLog",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.SystemRun",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SystemRun",
-      "assembly": "sce",
-      "static": false,
-      "returns": "int",
-      "risk": "write",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "arguments",
-          "type": "List<string>",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.SystemCommandAsync",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SystemCommandAsync",
-      "assembly": "sce",
-      "static": false,
-      "returns": "uint",
-      "risk": "danger",
-      "params": [
-        {
-          "name": "commandLine",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.SystemRunAsync",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SystemRunAsync",
-      "assembly": "sce",
-      "static": false,
-      "returns": "uint",
-      "risk": "write",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "arguments",
-          "type": "List<string>",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.SystemOpen",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SystemOpen",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "mode",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.Copy",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "Copy",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "srcFileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "destFileName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.CopyNotDecode",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "CopyNotDecode",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "srcFileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "destFileName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.CopyToFolder",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "CopyToFolder",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "srcPath",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "destFolderPath",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "ignoreSymLink",
-          "type": "bool",
-          "required": true
-        },
-        {
-          "name": "notDecode",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.Rename",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "Rename",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "srcFileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "destFileName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.Delete",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "Delete",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "danger",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.DeleteAll",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "DeleteAll",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "danger",
-      "params": [
-        {
-          "name": "path",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.DeleteDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "DeleteDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "danger",
-      "params": [
-        {
-          "name": "dir",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "args",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.CreateSymbolLink",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "CreateSymbolLink",
-      "assembly": "sce",
-      "static": false,
-      "returns": "int",
-      "risk": "write",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "existFileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "isFolder",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.RegisterPath",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "RegisterPath",
-      "assembly": "sce",
-      "static": false,
-      "returns": "void",
-      "risk": "write",
-      "params": [
-        {
-          "name": "pathName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.SetLastModifiedTime",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SetLastModifiedTime",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "newTime",
-          "type": "uint",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.GetExecuteConsoleCommands",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "GetExecuteConsoleCommands",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "read",
-      "params": []
-    },
-    {
-      "id": "svc.FileSystem.HasRegisteredPaths",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "HasRegisteredPaths",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "read",
-      "params": []
-    },
-    {
-      "id": "svc.FileSystem.CheckAccess",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "CheckAccess",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "read",
-      "params": [
-        {
-          "name": "pathName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.GetLastModifiedTime",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "GetLastModifiedTime",
-      "assembly": "sce",
-      "static": false,
-      "returns": "uint",
-      "risk": "read",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.FileExists",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "FileExists",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "read",
-      "params": [
-        {
-          "name": "fileName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.DirExists",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "DirExists",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "read",
-      "params": [
-        {
-          "name": "pathName",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.ScanDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "ScanDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "List<string>",
-      "risk": "read",
-      "params": [
-        {
-          "name": "pathName",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "filter",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "flags",
-          "type": "uint",
-          "required": true
-        },
-        {
-          "name": "recursive",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.GetResourceDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "GetResourceDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "string",
-      "risk": "read",
-      "params": []
-    },
-    {
-      "id": "svc.FileSystem.GetUpdateResDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "GetUpdateResDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "string",
-      "risk": "read",
-      "params": []
-    },
-    {
-      "id": "svc.FileSystem.GetAppPreferencesDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "GetAppPreferencesDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "string",
-      "risk": "read",
-      "params": [
-        {
-          "name": "org",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "app",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.GetTemporaryDir",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "GetTemporaryDir",
-      "assembly": "sce",
-      "static": false,
-      "returns": "string",
-      "risk": "read",
-      "params": []
-    },
-    {
-      "id": "svc.FileSystem.GetUpdateIp",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "GetUpdateIp",
-      "assembly": "sce",
-      "static": false,
-      "returns": "string",
-      "risk": "read",
-      "params": []
-    },
-    {
-      "id": "svc.FileSystem.SetUpdateIp",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "SetUpdateIp",
-      "assembly": "sce",
-      "static": false,
-      "returns": "void",
-      "risk": "write",
-      "params": [
-        {
-          "name": "ip",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.AddWatch",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "AddWatch",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "watchPath",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "isMapPath",
-          "type": "bool",
-          "required": true
-        },
-        {
-          "name": "enableDelete",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.RemoveWatch",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "RemoveWatch",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "watchPath",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.PauseWatch",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "PauseWatch",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "watchPath",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "pause",
-          "type": "bool",
-          "required": true
-        },
-        {
-          "name": "enableDelete",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.AddSkip(string,string,bool)",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "AddSkip",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "watchPath",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "skipPath",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "alwaysSkip",
-          "type": "bool",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.AddSkip(string)",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "AddSkip",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "skipPath",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.RemoveSkip(string,string)",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "RemoveSkip",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "watchPath",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "skipPath",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.RemoveSkip(string)",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "RemoveSkip",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "skipPath",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.ClearSkip",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "ClearSkip",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "watchPath",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
-    {
-      "id": "svc.FileSystem.CreateDesktopShortCut",
-      "executor": "svc",
-      "type": "SCE.CppInterface.FileSystem",
-      "method": "CreateDesktopShortCut",
-      "assembly": "sce",
-      "static": false,
-      "returns": "bool",
-      "risk": "write",
-      "params": [
-        {
-          "name": "exe",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "desc",
-          "type": "string",
-          "required": true
-        },
-        {
-          "name": "args",
-          "type": "string",
-          "required": true
-        }
-      ]
-    },
     {
       "id": "svc.EditorSettingsManager.GetObjcetNumberValue",
       "executor": "svc",
@@ -5355,6 +4576,171 @@
       "returns": "object",
       "risk": "read",
       "params": []
+    },
+    {
+      "id": "lua.find_ui",
+      "executor": "lua",
+      "method": "find_ui",
+      "returns": "object",
+      "risk": "read",
+      "params": [
+        {
+          "name": "q",
+          "type": "string",
+          "required": false,
+          "description": "控件名/id/显示文本子串（模糊、不区分大小写，如 \"商店\" / \"entry\"）；与 kind 至少给一个"
+        },
+        {
+          "name": "kind",
+          "type": "string",
+          "required": false,
+          "description": "click=列出全部可点控件 | input=列出全部输入框（不传 q 时用于快速盘点可交互元素）"
+        },
+        {
+          "name": "scope",
+          "type": "string",
+          "required": false,
+          "default": "game",
+          "description": "game=游戏UI（cgui 快照+base.ui 树，默认）| editor=编辑器 UI（base.ui 持久树）"
+        }
+      ]
+    },
+    {
+      "id": "lua.click_ui",
+      "executor": "lua",
+      "method": "click_ui",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "find_ui 返回的控件 id（支持末段简写；仅 clickable=true 的 cgui 控件可点）"
+        }
+      ]
+    },
+    {
+      "id": "lua.click_at",
+      "executor": "lua",
+      "method": "click_at",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "x",
+          "type": "number",
+          "required": true,
+          "description": "游戏视口逻辑坐标 x（与 find_ui rect / capture_game crop 同系）"
+        },
+        {
+          "name": "y",
+          "type": "number",
+          "required": true,
+          "description": "游戏视口逻辑坐标 y"
+        }
+      ]
+    },
+    {
+      "id": "lua.input_text",
+      "executor": "lua",
+      "method": "input_text",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "输入框控件 id（find_ui inputable=true 的）"
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "required": true,
+          "description": "完整文本（等价人工输入，直接触发 on_input）"
+        }
+      ]
+    },
+    {
+      "id": "lua.game_info",
+      "executor": "lua",
+      "method": "game_info",
+      "returns": "object",
+      "risk": "read",
+      "params": []
+    },
+    {
+      "id": "lua.press_ui",
+      "executor": "lua",
+      "method": "press_ui",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "控件 id（find_ui 返回中 pressable=true 的，如虚拟摇杆）"
+        },
+        {
+          "name": "x",
+          "type": "number",
+          "required": false,
+          "description": "按住方向 x（[-1,1]，摇杆用；缺省 0）"
+        },
+        {
+          "name": "y",
+          "type": "number",
+          "required": false,
+          "description": "按住方向 y（[-1,1]，向下为正；缺省 0）"
+        }
+      ]
+    },
+    {
+      "id": "lua.release_ui",
+      "executor": "lua",
+      "method": "release_ui",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "控件 id（解除 press_ui 的模拟按住）"
+        }
+      ]
+    },
+    {
+      "id": "lua.long_press_ui",
+      "executor": "lua",
+      "method": "long_press_ui",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "控件 id（find_ui 返回中 long_pressable=true 的）"
+        }
+      ]
+    },
+    {
+      "id": "lua.hover_ui",
+      "executor": "lua",
+      "method": "hover_ui",
+      "returns": "object",
+      "risk": "read",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "控件 id（hover 暂无法模拟，调用返回原因说明与替代方案）"
+        }
+      ]
     },
     {
       "id": "sys.server_info",

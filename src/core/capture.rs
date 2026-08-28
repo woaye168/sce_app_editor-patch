@@ -19,18 +19,36 @@ use serde_json::{json, Value};
 use std::path::Path;
 use std::time::Duration;
 
-/// 截取调试游戏画面（纯游戏画面+游戏 UI，不含编辑器界面）。
-/// ratio：输出倍率（0.5/1/2/3/4，对应编辑器调试视图的倍率选项）。
-/// out：自定义输出路径（缺省 <项目>/.bgd/log/screenshots/capture_<时间戳>.png）
-#[cfg(windows)]
-pub fn capture_game(project_root: &Path, ratio: f64, out: Option<&Path>) -> Result<Value> {
-    capture_game_impl(project_root, ratio, out, false)
-}
-
 /// open_explorer=true 时截图完成后用资源管理器选中文件（编辑器内拍照按钮路径用，
 /// 替代官方「截图后打开所在文件夹」行为——由 CLI 进程自己做，不依赖编辑器 lua 计时器）
 #[cfg(windows)]
 pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, open_explorer: bool) -> Result<Value> {
+    do_capture(project_root, ratio, out, open_explorer, None, None)
+}
+
+/// MCP 工具层专用（0.8.0 R1.2）：视口裁剪后叠加逻辑坐标子矩形裁剪 + max_width 上限，
+/// 护住 AI 上下文。crop = (x, y, w, h) 游戏视口逻辑坐标（原点 (0,0)=视口左上，
+/// 与 lua.get_game_view_rect / find_ui 同系），越界自动 clamp 不报错。
+/// CLI/GUI/pie_capture 拍照路径走 capture_game_impl，不受此影响（用户要原图）。
+#[cfg(windows)]
+pub fn capture_game_mcp(
+    project_root: &Path,
+    ratio: f64,
+    crop: Option<(f64, f64, f64, f64)>,
+    max_width: Option<u32>,
+) -> Result<Value> {
+    do_capture(project_root, ratio, None, false, crop, max_width)
+}
+
+#[cfg(windows)]
+fn do_capture(
+    project_root: &Path,
+    ratio: f64,
+    out: Option<&Path>,
+    open_explorer: bool,
+    crop: Option<(f64, f64, f64, f64)>,
+    max_width: Option<u32>,
+) -> Result<Value> {
     let target = locate::locate(project_root).map_err(|e| anyhow!(e))?;
     let engine_root = target.engine_root().map_err(|e| anyhow!(e))?;
     let port = bridge_client::online_port(&engine_root)
@@ -86,10 +104,45 @@ pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, op
         std::fs::create_dir_all(parent)?;
     }
 
+    // MCP 层 crop：游戏视口逻辑坐标（与 find_ui/click_at 同系，游戏 VM 逻辑分辨率空间），
+    // 先换算到编辑器 UI 逻辑坐标（视口 rect 所在空间），再 clamp 到视口范围内（越界不报错）。
+    let rect_logical = match crop {
+        Some((x, y, w, h)) => {
+            let gi = bridge_client::bridge_invoke(port, "lua.game_info", json!({}), 10_000)?;
+            let gw = gi["logical_width"].as_f64().unwrap_or(0.0);
+            let gh = gi["logical_height"].as_f64().unwrap_or(0.0);
+            if gw < 1.0 || gh < 1.0 {
+                return Err(anyhow!(
+                    "游戏侧逻辑分辨率不可用（{gi}）。游戏项目需更新框架（dbg_bus）并重新构建后 restart_last_debug"
+                ));
+            }
+            // 越界保护：起点超出游戏画面时给出可读错误（坐标系是游戏逻辑分辨率空间，
+            // 窗口尺寸变化后旧坐标会失效——提示重新 find_ui 取当前 rect）
+            if x >= gw || y >= gh {
+                return Err(anyhow!(
+                    "crop 起点 ({x},{y}) 超出游戏画面（当前游戏逻辑分辨率 {gw}x{gh}）。\
+                     坐标可能已过期（窗口尺寸变化会改变逻辑分辨率），请用 lua.find_ui 重新定位"
+                ));
+            }
+            let sx = rw / gw;
+            let sy = rh / gh;
+            let ex = x * sx;
+            let ey = y * sy;
+            let ew = w * sx;
+            let eh = h * sy;
+            let cx = ex.clamp(0.0, rw);
+            let cy = ey.clamp(0.0, rh);
+            let cw = ew.clamp(1.0, (rw - cx).max(1.0));
+            let ch = eh.clamp(1.0, (rh - cy).max(1.0));
+            (rx + cx, ry + cy, cw, ch)
+        }
+        None => (rx, ry, rw, rh),
+    };
     let map = ViewportMap {
-        rect_logical: (rx, ry, rw, rh),
+        rect_logical,
         logical_res: (lw, lh),
         ratio,
+        max_width,
     };
     let (cw, ch) = wgc_capture_mapped(main.hwnd, &path, &map)?;
 
@@ -100,17 +153,29 @@ pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, op
             .spawn();
     }
 
-    Ok(json!({
+    let mut ret = json!({
         "path": super::editor::to_slash(&path),
         "width": cw,
         "height": ch,
         "ratio": ratio,
         "mode": "game_viewport",
-    }))
+    });
+    if let Some((x, y, w, h)) = crop {
+        ret["crop"] = json!({ "x": x, "y": y, "w": w, "h": h });
+    }
+    if let Some(mw) = max_width {
+        ret["max_width"] = json!(mw);
+    }
+    Ok(ret)
 }
 
 #[cfg(not(windows))]
-pub fn capture_game(_project_root: &Path, _ratio: f64, _out: Option<&Path>) -> Result<Value> {
+pub fn capture_game_mcp(
+    _project_root: &Path,
+    _ratio: f64,
+    _crop: Option<(f64, f64, f64, f64)>,
+    _max_width: Option<u32>,
+) -> Result<Value> {
     Err(anyhow!("仅支持 Windows"))
 }
 
@@ -121,6 +186,8 @@ struct ViewportMap {
     rect_logical: (f64, f64, f64, f64),
     logical_res: (f64, f64),
     ratio: f64,
+    /// MCP 层输出宽度上限（最终上限，与 ratio 叠加时优先生效）
+    max_width: Option<u32>,
 }
 
 /// 编辑器窗口信息
@@ -364,6 +431,18 @@ fn wgc_capture_mapped(
             nw,
             nh,
         )
+    };
+    // max_width 最终上限（MCP 上下文防爆；与 ratio 同时给出时 max_width 为最终上限）
+    let (out_img, ow, oh) = match map.max_width {
+        Some(mw) if mw >= 1 && ow > mw => {
+            let nh = ((oh as f64 * mw as f64 / ow as f64).round() as u32).max(1);
+            (
+                image::imageops::resize(&out_img, mw, nh, image::imageops::FilterType::Lanczos3),
+                mw,
+                nh,
+            )
+        }
+        _ => (out_img, ow, oh),
     };
     // 快速 PNG 编码（截图场景对体积不敏感，Fast+NoFilter 显著快于默认）
     {

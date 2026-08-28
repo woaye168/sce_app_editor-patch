@@ -110,7 +110,8 @@ var capabilities = new List<JsonObject>();
 // 注意：只收引擎级单例；AddMapScoped（IDataCore）走 datacore.* 手写封装；瞬态窗口/VM 无外部调用价值。
 (string Type, string Assembly)[] svcServices =
 [
-    ("SCE.CppInterface.FileSystem", "sce"),
+    // 0.8.0 起剔除 SCE.CppInterface.FileSystem：文件读删/复制/改时间等 AI 用自身工具即可完成，
+    // 不需要 MCP 通道（减少搜索噪音）
     ("SCE.CppInterface.EditorSettingsManager", "sce"),
     ("SCE.CppInterface.SceneManager", "sce"),
     ("SCE.CppInterface.PluginsManager", "sce"),
@@ -355,6 +356,51 @@ static class CatalogGenerator
         yield return Entry("lua.capture_game", "lua", "capture_game", "object", "read",
             [Param("path", "string", false, null, "png 落盘绝对路径（缺省自动生成到 用户目录/screenShot/）")]);
         yield return Entry("lua.get_game_view_rect", "lua", "get_game_view_rect", "object", "read", []);
+        yield return Entry("lua.find_ui", "lua", "find_ui", "object",
+            "read",
+            [
+                Param("q", "string", false, null, "控件名/id/显示文本子串（模糊、不区分大小写，如 \"商店\" / \"entry\"）；与 kind 至少给一个"),
+                Param("kind", "string", false, null, "click=列出全部可点控件 | input=列出全部输入框（不传 q 时用于快速盘点可交互元素）"),
+                Param("scope", "string", false, JsonValue.Create("game"), "game=游戏UI（cgui 快照+base.ui 树，默认）| editor=编辑器 UI（base.ui 持久树）"),
+            ]);
+        yield return Entry("lua.click_ui", "lua", "click_ui", "object",
+            "write",
+            [Param("id", "string", true, null, "find_ui 返回的控件 id（支持末段简写；仅 clickable=true 的 cgui 控件可点）")]);
+        yield return Entry("lua.click_at", "lua", "click_at", "object",
+            "write",
+            [
+                Param("x", "number", true, null, "游戏视口逻辑坐标 x（与 find_ui rect / capture_game crop 同系）"),
+                Param("y", "number", true, null, "游戏视口逻辑坐标 y"),
+            ]);
+        yield return Entry("lua.input_text", "lua", "input_text", "object",
+            "write",
+            [
+                Param("id", "string", true, null, "输入框控件 id（find_ui inputable=true 的）"),
+                Param("text", "string", true, null, "完整文本（等价人工输入，直接触发 on_input）"),
+            ]);
+        yield return Entry("lua.game_info", "lua", "game_info", "object", "read", []);
+        yield return Entry("lua.press_ui", "lua", "press_ui", "object",
+            "write",
+            [
+                Param("id", "string", true, null, "控件 id（find_ui 返回中 pressable=true 的，如虚拟摇杆）"),
+                Param("x", "number", false, null, "按住方向 x（[-1,1]，摇杆用；缺省 0）"),
+                Param("y", "number", false, null, "按住方向 y（[-1,1]，向下为正；缺省 0）"),
+            ]);
+        yield return Entry("lua.release_ui", "lua", "release_ui", "object",
+            "write",
+            [Param("id", "string", true, null, "控件 id（解除 press_ui 的模拟按住）")]);
+        yield return Entry("lua.long_press_ui", "lua", "long_press_ui", "object",
+            "write",
+            [Param("id", "string", true, null, "控件 id（find_ui 返回中 long_pressable=true 的）")]);
+        yield return Entry("lua.hover_ui", "lua", "hover_ui", "object",
+            "read",
+            [Param("id", "string", true, null, "控件 id（hover 暂无法模拟，调用返回原因说明与替代方案）")]);
+        yield return Entry("lua.set_value", "lua", "set_value", "object",
+            "write",
+            [
+                Param("id", "string", true, null, "控件 id（find_ui 返回中 settable=true 的 slider）"),
+                Param("value", "number", true, null, "目标数值（on_change+on_commit 一次到位，等价拖到位松手）"),
+            ]);
         yield return Entry("sys.server_info", "sys", "server_info", "object", "read", []);
     }
 

@@ -20,6 +20,7 @@ include_dir = "0.7"
 sha2 = "0.10"
 encoding_rs = "0.8"
 anyhow = "1"
+regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls", "json"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 bgd_appsdk = "0.2"

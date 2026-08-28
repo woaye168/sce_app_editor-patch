@@ -10,6 +10,7 @@ pub mod editor;
 pub mod kernel;
 pub mod locate;
 pub mod log;
+pub mod logs;
 pub mod modules;
 pub mod ops;
 pub mod slot_inject;

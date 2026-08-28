@@ -1,0 +1,424 @@
+//! 日志读取（0.8.0 自 editor.rs 拆出，单文件职责纪律）。
+//!
+//! - get_game_logs：读 <运行根>/logs/ 下游戏客户端/服务端/bgd_csharp 最新日志文件信息（离线可用）
+//! - match 正则过滤 + errors 段自动上浮 + 同条收纳（×N 计数）——防刷屏灌爆上下文、
+//!   防前置错误导致假阳性/假阴性漏判（机制注释见 scan_log_lines）
+
+use super::locate;
+use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+
+/// 日志源定义：(key, 子目录, 文件前缀, 说明) —— 每类取最新一个文件（0.5.6 起带 desc 说明）
+const LOG_SOURCES: &[(&str, &str, &str, &str)] = &[
+    ("bridge_audit", "bgd_csharp", "audit-", "MCP桥审计日志（编辑器补丁 bgd_mcp_bridge 的 write/danger 能力调用审计）"),
+    ("bridge_main", "bgd_csharp", "bgd_csharp-", "MCP桥入口日志（编辑器补丁 bgd_mcp_bridge 服务启动/请求处理日志）"),
+    ("xdeditor_client", "lua", "lua-editor-", "编辑器日志（星火编辑器操作动作及运行日志）"),
+    ("game_client", "lua", "lua-game-", "游戏客户端日志（调试游戏后产生）"),
+    ("service_core", "server", "core-game-server-", "服务器底层日志（游戏服务端底层框架日志）"),
+    ("game_server", "server", "lua-game-server-", "游戏服务端日志（游戏服务端自身代码日志）"),
+];
+
+/// 对外输出路径统一正斜杠（0.5.6 R2）
+pub fn to_slash(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
+/// 获取游戏日志（离线可用；默认只返回文件路径与信息，tail_lines>0 才带内容）。
+/// source 取值：具体 key（见 LOG_SOURCES）/ 动态聚合前缀（如 bridge 命中全部 bridge_*）/
+/// all / 缺省 game（命中 game_client + game_server）。
+/// match_pattern（0.8.0 R3）：正则过滤命中行（同条收纳+计数）+ errors 段自动上浮；
+/// 与 tail_lines 可同时用（互补不互斥）。
+pub fn get_game_logs(
+    project_root: &Path,
+    source: &str,
+    tail_lines: usize,
+    match_pattern: Option<&str>,
+) -> Result<Value, String> {
+    let target = locate::locate(project_root)?;
+    let logs_root = target.engine_root()?.join("logs");
+
+    let match_re = match match_pattern {
+        Some(p) if !p.trim().is_empty() => Some(
+            regex::Regex::new(p).map_err(|e| format!("match 正则无效（{e}），请修正后重试"))?,
+        ),
+        _ => None,
+    };
+
+    let source = if source.trim().is_empty() { "game" } else { source.trim() };
+    // 匹配规则：all=全部；精确 key；否则动态聚合（key 以 `source_` 为前缀）
+    let matched: Vec<&(&str, &str, &str, &str)> = LOG_SOURCES
+        .iter()
+        .filter(|(key, _, _, _)| {
+            source == "all" || *key == source || key.starts_with(&format!("{source}_"))
+        })
+        .collect();
+    if matched.is_empty() {
+        let keys: Vec<&str> = LOG_SOURCES.iter().map(|(k, _, _, _)| *k).collect();
+        return Err(format!(
+            "source '{source}' 未匹配到任何日志项（可用 key：{}；也可用前缀聚合如 bridge/game、或 all）",
+            keys.join(" / ")
+        ));
+    }
+
+    let mut out = serde_json::Map::new();
+    for (key, sub, prefix, desc) in matched {
+        let dir = logs_root.join(sub);
+        match latest_file(&dir, prefix) {
+            Some(p) => {
+                out.insert(key.to_string(), file_info(&p, desc, tail_lines, match_re.as_ref()));
+            }
+            None => {
+                out.insert(
+                    key.to_string(),
+                    json!({
+                        "desc": desc,
+                        "path": Value::Null,
+                        "note": format!("{} 下无 {prefix}*.log（未产生过该类日志）", to_slash(&dir)),
+                    }),
+                );
+            }
+        }
+    }
+    Ok(json!({ "logs_root": to_slash(&logs_root), "logs": out }))
+}
+
+/// 单个日志文件信息
+fn file_info(path: &Path, desc: &str, tail_lines: usize, match_re: Option<&regex::Regex>) -> Value {
+    let meta = std::fs::metadata(path).ok();
+    let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+    let to_local = |t: Option<std::time::SystemTime>| -> Value {
+        t.map(|t| {
+            let secs = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() as i64
+                + 8 * 3600;
+            let days = secs / 86400;
+            let rem = secs % 86400;
+            let (y, m, d) = bgd_appsdk::log::civil_from_days(days);
+            Value::String(format!(
+                "{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}",
+                rem / 3600,
+                (rem % 3600) / 60,
+                rem % 60
+            ))
+        })
+        .unwrap_or(Value::Null)
+    };
+    let created = meta.as_ref().and_then(|m| m.created().ok());
+    let modified = meta.as_ref().and_then(|m| m.modified().ok());
+
+    let lines = count_lines(path).unwrap_or(0);
+
+    let mut info = json!({
+        "desc": desc,
+        "path": to_slash(path),
+        "size": size,
+        "created": to_local(created),
+        "modified": to_local(modified),
+        "lines": lines,
+    });
+    if match_re.is_some() || tail_lines > 0 {
+        scan_log_lines(path, match_re, &mut info);
+    }
+    if tail_lines > 0 {
+        const TAIL_BYTE_CAP: usize = 64 * 1024;
+        let (tail, truncated) = read_tail(path, tail_lines, TAIL_BYTE_CAP);
+        info["tail"] = Value::String(tail);
+        info["truncated"] = Value::Bool(truncated);
+    }
+    info
+}
+
+/// 日志行扫描（0.8.0 易用性增强）：
+/// - match 命中行：同条收纳（剥离行首 [时间][pid] 前缀后比对，同一条只回最近一次 + ×N 计数），
+///   防刷屏行灌爆上下文，同时保留「发生了几次」的排障关键信息；
+/// - errors 段：无论 match 是否给出，错误行（[error]/[ERROR]）都单独收纳上浮——
+///   前置改动引发的错误会让目标逻辑根本没执行到（假阳性/假阴性），只看 match 命中会漏判。
+/// 行格式："行号: 原文"，重复行附 " (×N)"。
+fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value) {
+    use std::collections::HashMap;
+    use std::io::{BufRead, BufReader};
+
+    const MATCH_CAP: usize = 100;
+    const ERROR_CAP: usize = 20;
+
+    let Ok(f) = std::fs::File::open(path) else {
+        return;
+    };
+    let error_re = regex::Regex::new(r"(?i)\[error\]").unwrap();
+    // 同条比对键：剥离行首 [时间][pid] 前缀与 [级别] 后的 [序号]（真机日志四组括号
+    // [time][pid][level][seq]，seq 逐条递增不去掉会导致刷屏行收纳失败——00_49 真机实测）。
+    // 级别括号保留在键内（$1 回填），同文的 info/error 不混淆。
+    let prefix_re = regex::Regex::new(
+        r"(?x)^\[[^\]]{0,64}\]\[[^\]]{0,16}\]\s*
+        ((?i)\[(?:info|error|warning|warn|debug|fatal)\])?(\[\d{1,12}\])?\s*",
+    )
+    .unwrap();
+
+    /// 同条收纳桶：key=去前缀行 → (次数, 最近行号, 最近原文)
+    struct Bucket {
+        order: Vec<String>,
+        map: HashMap<String, (usize, usize, String)>,
+        raw_total: usize,
+    }
+    impl Bucket {
+        fn new() -> Self {
+            Self { order: Vec::new(), map: HashMap::new(), raw_total: 0 }
+        }
+        fn push(&mut self, lineno: usize, line: &str, prefix_re: &regex::Regex) {
+            self.raw_total += 1;
+            // $1 回填级别括号（保留在键内），时间/pid/序号剥离
+            let key = prefix_re.replace(line, "$1").into_owned();
+            match self.map.get_mut(&key) {
+                Some(v) => {
+                    v.0 += 1;
+                    v.1 = lineno;
+                    v.2 = line.to_string();
+                }
+                None => {
+                    self.map.insert(key.clone(), (1, lineno, line.to_string()));
+                    self.order.push(key);
+                }
+            }
+        }
+        /// 按「最近出现行号」升序输出（最近发生的排最后），超上限截断保留最新若干条
+        fn render(&self, cap: usize) -> (Vec<String>, usize, bool) {
+            let mut entries: Vec<&(usize, usize, String)> =
+                self.order.iter().filter_map(|k| self.map.get(k)).collect();
+            entries.sort_by_key(|v| v.1);
+            let distinct = entries.len();
+            let truncated = distinct > cap;
+            let lines: Vec<String> = entries
+                .into_iter()
+                .skip(distinct.saturating_sub(cap))
+                .map(|(n, lineno, line)| {
+                    if *n > 1 {
+                        format!("{lineno}: {line} (×{n})")
+                    } else {
+                        format!("{lineno}: {line}")
+                    }
+                })
+                .collect();
+            (lines, distinct, truncated)
+        }
+    }
+
+    let mut hits = Bucket::new();
+    let mut errors = Bucket::new();
+    let mut reader = BufReader::with_capacity(256 * 1024, f);
+    let mut buf = Vec::new();
+    let mut lineno = 0usize;
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => {
+                lineno += 1;
+                let line = String::from_utf8_lossy(&buf);
+                let line = line.trim_end();
+                if let Some(re) = match_re {
+                    if re.is_match(line) {
+                        hits.push(lineno, line, &prefix_re);
+                    }
+                }
+                if error_re.is_match(line) {
+                    errors.push(lineno, line, &prefix_re);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+
+    if let Some(re) = match_re {
+        let (lines, distinct, truncated) = hits.render(MATCH_CAP);
+        info["match"] = json!({
+            "pattern": re.as_str(),
+            "total": hits.raw_total,
+            "distinct": distinct,
+            "returned": lines.len(),
+            "truncated": truncated,
+            "lines": lines,
+        });
+    }
+    let (lines, distinct, truncated) = errors.render(ERROR_CAP);
+    info["errors"] = json!({
+        "total": errors.raw_total,
+        "distinct": distinct,
+        "returned": lines.len(),
+        "truncated": truncated,
+        "lines": lines,
+    });
+}
+
+fn count_lines(path: &Path) -> Option<usize> {
+    use std::io::{BufRead, BufReader};
+    let f = std::fs::File::open(path).ok()?;
+    let mut reader = BufReader::with_capacity(256 * 1024, f);
+    let mut n = 0;
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) => break,
+            Ok(_) => n += 1,
+            Err(_) => break,
+        }
+    }
+    Some(n)
+}
+
+/// 读文件末尾 N 行（带字节上限；从尾部窗口读避免整文件载入）
+fn read_tail(path: &Path, tail_lines: usize, byte_cap: usize) -> (String, bool) {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return (String::new(), false);
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(byte_cap as u64);
+    let truncated = start > 0;
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return (String::new(), false);
+    }
+    let mut buf = Vec::new();
+    if f.read_to_end(&mut buf).is_err() {
+        return (String::new(), false);
+    }
+    let text = String::from_utf8_lossy(&buf);
+    let lines: Vec<&str> = text.lines().collect();
+    let lines = if truncated && !lines.is_empty() {
+        &lines[1..]
+    } else {
+        &lines[..]
+    };
+    let tail: Vec<&str> = lines.iter().rev().take(tail_lines).rev().cloned().collect();
+    (tail.join("\n"), truncated)
+}
+
+/// 目录下按前缀找最新文件（mtime 优先）
+fn latest_file(dir: &Path, prefix: &str) -> Option<PathBuf> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension().map(|e| e == "log").unwrap_or(false)
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(prefix))
+                    .unwrap_or(false)
+        })
+        .max_by_key(|p| {
+            p.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::UNIX_EPOCH)
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_civil_from_days() {
+        // 算法单一真相在 bgd_appsdk::log（此处守护调用约定的换算结果）
+        assert_eq!(bgd_appsdk::log::civil_from_days(0), (1970, 1, 1));
+        assert_eq!(bgd_appsdk::log::civil_from_days(20270), (2025, 7, 1));
+    }
+
+    #[test]
+    fn test_tail_and_count() {
+        let dir = std::env::temp_dir().join(format!("bgd_logs_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("lua-game-20260101.log");
+        let content: String = (1..=100).map(|i| format!("line{i}\n")).collect();
+        std::fs::write(&f, &content).unwrap();
+        assert_eq!(count_lines(&f), Some(100));
+        let (tail, truncated) = read_tail(&f, 3, 64 * 1024);
+        assert!(!truncated);
+        assert_eq!(tail, "line98\nline99\nline100");
+        let (tail2, truncated2) = read_tail(&f, 3, 64);
+        assert!(truncated2);
+        assert!(tail2.contains("line100"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_latest_file() {
+        let dir = std::env::temp_dir().join(format!("bgd_logs_latest_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("lua-game-1.log"), "a").unwrap();
+        std::fs::write(dir.join("core-game-server-1.log"), "b").unwrap();
+        std::fs::write(dir.join("other.txt"), "c").unwrap();
+        let got = latest_file(&dir, "lua-game-").unwrap();
+        assert!(got.ends_with("lua-game-1.log"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_match_filter() {
+        let dir = std::env::temp_dir().join(format!("bgd_logs_match_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("lua-game-20260101.log");
+        // 10 条普通 + 同一错误刷屏 3 次（前缀时间/pid/序号不同）+ 另一条错误 1 次
+        let mut content = String::new();
+        for i in 1..=10 {
+            content.push_str(&format!("[2026-08-29 01:02:{i:02}.000][8968][info][100][a.lua:1] line{i} ok\n"));
+        }
+        for i in 20..=22 {
+            content.push_str(&format!(
+                "[2026-08-29 01:03:{i}.844][8968][error][{seq}][b.lua:2] [ERROR] [c.lua:3] [cgui] 组合函数异常（hub）\n",
+                seq = 68949 + i
+            ));
+        }
+        content.push_str("[2026-08-29 01:04:00.000][8968][error][69000][d.lua:4] [ERROR] 另一错误\n");
+        std::fs::write(&f, &content).unwrap();
+
+        // match 命中普通行：同条收纳生效（互不相同的行各自一条）
+        let re = regex::Regex::new("ok$").unwrap();
+        let info = file_info(&f, "d", 0, Some(&re));
+        let m = &info["match"];
+        assert_eq!(m["total"].as_u64(), Some(10));
+        assert_eq!(m["distinct"].as_u64(), Some(10));
+        assert_eq!(m["returned"].as_u64(), Some(10));
+
+        // match 命中刷屏错误：收纳为 1 条 + ×3 计数（取最近一次行号）
+        let re2 = regex::Regex::new("组合函数异常").unwrap();
+        let info2 = file_info(&f, "d", 0, Some(&re2));
+        let m2 = &info2["match"];
+        assert_eq!(m2["total"].as_u64(), Some(3));
+        assert_eq!(m2["distinct"].as_u64(), Some(1));
+        let lines = m2["lines"].as_array().unwrap();
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].as_str().unwrap().starts_with("13: "));
+        assert!(lines[0].as_str().unwrap().ends_with("(×3)"));
+
+        // errors 段：无论 match 与否都上浮；两条不同错误各一次收纳
+        let e2 = &info2["errors"];
+        assert_eq!(e2["total"].as_u64(), Some(4));
+        assert_eq!(e2["distinct"].as_u64(), Some(2));
+        let elines = e2["lines"].as_array().unwrap();
+        assert_eq!(elines.len(), 2);
+        assert!(elines[0].as_str().unwrap().contains("(×3)"));
+        assert!(!elines[1].as_str().unwrap().contains('×'));
+
+        // tail 与 match 可同用；tail 模式也带 errors 段
+        let info3 = file_info(&f, "d", 3, Some(&re));
+        assert!(info3["tail"].as_str().unwrap().contains("另一错误"));
+        assert!(info3["errors"]["total"].as_u64() == Some(4));
+        let info4 = file_info(&f, "d", 3, None);
+        assert!(info4["errors"]["distinct"].as_u64() == Some(2));
+        assert!(info4.get("match").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 真机冒烟：对真实日志文件跑 match + errors 收纳（BGD_SMOKE_LOG 环境变量指定路径）
+    #[test]
+    #[ignore = "真机冒烟：cargo test -- --ignored 且设 BGD_SMOKE_LOG=<日志文件路径>"]
+    fn test_smoke_real_log() {
+        let p = std::env::var("BGD_SMOKE_LOG").expect("先设 BGD_SMOKE_LOG=<日志文件路径>");
+        let re = regex::Regex::new("组合函数异常").unwrap();
+        let info = file_info(std::path::Path::new(&p), "smoke", 5, Some(&re));
+        println!("{}", serde_json::to_string_pretty(&info).unwrap());
+    }
+}

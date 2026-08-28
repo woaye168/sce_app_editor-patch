@@ -1,6 +1,6 @@
 {
   "engine_version": "13",
-  "generated_at": "2026-08-29 02:35:28",
+  "generated_at": "2026-08-29 05:17:29",
   "capabilities": [
     {
       "id": "svc.EditorSettingsManager.GetObjcetNumberValue",
@@ -4739,6 +4739,27 @@
           "type": "string",
           "required": true,
           "description": "控件 id（hover 暂无法模拟，调用返回原因说明与替代方案）"
+        }
+      ]
+    },
+    {
+      "id": "lua.set_value",
+      "executor": "lua",
+      "method": "set_value",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "控件 id（find_ui 返回中 settable=true 的 slider）"
+        },
+        {
+          "name": "value",
+          "type": "number",
+          "required": true,
+          "description": "目标数值（on_change+on_commit 一次到位，等价拖到位松手）"
         }
       ]
     },

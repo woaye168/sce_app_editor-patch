@@ -89,10 +89,11 @@ fn do_capture(
     let path = match out {
         Some(p) => p.to_path_buf(),
         None => {
+            // 毫秒级时间戳：多步场景脚本内同一秒可能多次截图，秒级文件名会互相覆盖（0.8.0 验收实测）
             let ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
-                .as_secs();
+                .as_millis();
             project_root
                 .join(".bgd")
                 .join("log")

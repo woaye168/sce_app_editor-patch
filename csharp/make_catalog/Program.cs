@@ -65,19 +65,29 @@ if (args.Length >= 1 && args[0] == "--project")
     }
     hostDir = derived;
     apiVersion = av;
-    outPath = args.Length > 2 ? args[2] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "bgd_mcp_bridge", "catalog.json"));
+    outPath = args.Length > 2 ? args[2] : DefaultOutPath();
     Console.WriteLine($"已从项目推导：hostDir={hostDir} api={apiVersion}");
 }
 else if (args.Length >= 2)
 {
     hostDir = args[0];
     apiVersion = args[1];
-    outPath = args.Length > 2 ? args[2] : Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "bgd_mcp_bridge", "catalog.json"));
+    outPath = args.Length > 2 ? args[2] : DefaultOutPath();
 }
 else
 {
     Console.Error.WriteLine("用法: make_catalog --project <项目根> [<输出路径>]  |  make_catalog <宿主目录> <api版本> [<输出路径>]");
     return 1;
+}
+
+// 默认输出 <repo>/csharp/bgd_mcp_bridge/catalog.json：从 BaseDirectory 向上找 make_catalog 目录定位
+//（固定上溯层级不可靠——x64 平台下 bin/x64/Debug/net9.0 多一级，曾把 catalog 生成到仓库根）
+static string DefaultOutPath()
+{
+    var dir = new DirectoryInfo(AppContext.BaseDirectory);
+    while (dir != null && dir.Name != "make_catalog") dir = dir.Parent;
+    var csharpDir = dir?.Parent;
+    return Path.GetFullPath(Path.Combine(csharpDir?.FullName ?? ".", "bgd_mcp_bridge", "catalog.json"));
 }
 
 if (!Directory.Exists(hostDir))

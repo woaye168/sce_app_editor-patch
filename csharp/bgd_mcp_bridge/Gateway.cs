@@ -37,14 +37,14 @@ public sealed class Gateway
                     ["type"] = "object",
                     ["properties"] = new JsonObject
                     {
-                        ["query"] = new JsonObject { ["type"] = "string", ["description"] = "关键词，可多个（空格分隔，与语义）" },
+                        ["query"] = new JsonObject { ["type"] = "string", ["description"] = "关键词，可多个（空格分隔，与语义；无全中结果时自动回退部分命中）" },
                         ["limit"] = new JsonObject { ["type"] = "integer", ["default"] = 5, ["description"] = "返回条数，上限 10" },
                     },
                     ["required"] = new JsonArray("query"),
                 });
         }
         int limit = JsonRead.Int(p, "limit", 5);
-        var (total, results) = _catalog.Search(query, limit);
+        var (total, results, partialFallback) = _catalog.Search(query, limit);
         var arr = new JsonArray();
         foreach (var (entry, _) in results)
         {
@@ -66,6 +66,7 @@ public sealed class Gateway
         var warning = _catalog.SearchHeaderWarning();
         if (warning != null) result["warning"] = warning;
         if (total > results.Count) result["hint"] = "命中过多，请收窄关键词（total_hits 为全部命中数）";
+        else if (partialFallback) result["hint"] = "无全部关键词同时命中的能力，以下为部分命中（可按需减少/更换关键词）";
         return OpResult.Success(result);
     }
 

@@ -311,36 +311,49 @@ public sealed class CapabilityCatalog
     /// <summary>
     /// 关键词搜索（id/描述/别名/标签模糊匹配）。
     /// limit 默认 5、上限 10；打分链：精确 id &gt; 别名 &gt; 标签 &gt; 描述，同分按 id 长度升序。
-    /// 返回（命中数, 结果条目含分数）。
+    /// 多关键词为空格分隔「与」语义；**0.8.1 起全中优先、无全中时回退部分命中**
+    /// （严格 AND 对自然语言多词查询过于苛刻，实测「找控件 点击按钮 定位」零命中），
+    /// 回退时按 命中词数 &gt; 总分 排序并置 PartialFallback=true 供上层提示。
+    /// 返回（命中数, 结果条目含分数, 是否部分命中回退）。
     /// </summary>
-    public (int TotalHits, List<(CapabilityEntry Entry, int Score)> Results) Search(string query, int limit = 5)
+    public (int TotalHits, List<(CapabilityEntry Entry, int Score)> Results, bool PartialFallback) Search(string query, int limit = 5)
     {
         if (limit <= 0) limit = 5;
         if (limit > 10) limit = 10;
         var tokens = query.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (tokens.Length == 0) return (0, new());
+        if (tokens.Length == 0) return (0, new(), false);
 
-        var scored = new List<(CapabilityEntry, int)>();
+        var allHit = new List<(CapabilityEntry, int)>();
+        var partial = new List<(CapabilityEntry, int Matched, int Score)>();
         foreach (var entry in _entries)
         {
             // 未准入 svc 不进 search（服务级准入制）；unsupported 条目不开放
             if (!IsServiceAdmitted(entry) || entry.Unsupported) continue;
             int total = 0;
-            bool allHit = true;
+            int matched = 0;
             foreach (var token in tokens)
             {
                 int s = ScoreToken(entry, token);
-                if (s <= 0) { allHit = false; break; }
-                total += s;
+                if (s > 0) { matched++; total += s; }
             }
-            if (allHit) scored.Add((entry, total));
+            if (matched == tokens.Length) allHit.Add((entry, total));
+            else if (matched > 0) partial.Add((entry, matched, total));
         }
-        scored.Sort((a, b) =>
+        allHit.Sort((a, b) =>
         {
             int c = b.Item2.CompareTo(a.Item2);
             return c != 0 ? c : a.Item1.Id.Length.CompareTo(b.Item1.Id.Length);
         });
-        return (scored.Count, scored.Take(limit).ToList());
+        if (allHit.Count > 0) return (allHit.Count, allHit.Take(limit).ToList(), false);
+        // 回退：部分命中按 命中词数 > 总分 排序
+        partial.Sort((a, b) =>
+        {
+            int c = b.Matched.CompareTo(a.Matched);
+            if (c != 0) return c;
+            c = b.Score.CompareTo(a.Score);
+            return c != 0 ? c : a.Item1.Id.Length.CompareTo(b.Item1.Id.Length);
+        });
+        return (partial.Count, partial.Take(limit).Select(p => (p.Item1, p.Score)).ToList(), true);
     }
 
     private static int ScoreToken(CapabilityEntry entry, string token)

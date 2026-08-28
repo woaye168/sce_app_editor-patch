@@ -23,9 +23,15 @@ fn step_cap(v: Value) -> Value {
     if s.len() <= STEP_CAP {
         return v;
     }
+    // 截断必须落在字符边界（中文多字节，直接按字节切会 panic——0.8.0 验收实测
+    // 「点」字横跨 2047..2050 导致 stdio 进程崩溃 CONNECTION_CLOSED）
+    let mut end = STEP_CAP;
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
     json!(format!(
         "{}...[步骤结果已截断：{} 字节 > {} 上限，请用更精确参数]",
-        &s[..STEP_CAP.min(s.len())],
+        &s[..end],
         s.len(),
         STEP_CAP
     ))
@@ -119,4 +125,29 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
         "elapsed_ms": t0.elapsed().as_millis(),
         "hint": "步骤全部成功=绿；failed_step 非空先看该步 error 与最近 logs(errors 段)。截图步骤返回 path 用 Read 查看",
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 截断落在多字节字符中间时不得 panic（0.8.0 验收实机事故：「点」横跨 2047..2050）
+    #[test]
+    fn test_step_cap_multibyte_boundary() {
+        // 构造：前置 ASCII 填满到 2047，随后跟「点」（3 字节 2047..2050）
+        let mut s = "a".repeat(2047);
+        s.push('点');
+        s.push_str(&"b".repeat(100));
+        let v = json!({ "text": s });
+        let capped = step_cap(v);
+        let out = capped.as_str().unwrap();
+        assert!(out.contains("步骤结果已截断"));
+        assert!(out.contains(&"a".repeat(100)));
+    }
+
+    #[test]
+    fn test_step_cap_small_passthrough() {
+        let v = json!({ "ok": true });
+        assert_eq!(step_cap(v.clone()), v);
+    }
 }

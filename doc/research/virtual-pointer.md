@@ -1,7 +1,7 @@
-# 0.8.2 R0 前期研究结论（虚拟指针 / 键盘模拟 / 拖放载荷 / clip 命中）
+# 0.8.2 虚拟指针机制与实测结论（R0 研究 + 实现终验）
 
-> 2026-08-29 上机实测（test_res002 PIE，StateGame VM，经新增 `lua.eval` 游戏侧逃生舱）。
-> 需求背景见 doc/requirements/0.8.2.md「R0 前期研究」。本期虚拟指针完整机制结论在实现后增补进本文或 ui-reflection.md。
+> 2026-08-29。R0 四问实测见下文；实现完成后的真机终验结论追加在文末「实现终验」。
+> 需求背景见 doc/requirements/0.8.2.md。
 
 ## 前置基建：lua.eval（本期新增）
 
@@ -61,3 +61,58 @@ base.event.on_key_up('W')    -- 监听立刻收到 'W'
 - 部分可见条目（pscroll 内容上移后 y<0 的条目）rect 同样是真实坐标，点其可见部分命中正确；
 - 残余边缘场景（rect 与视口相交但被更小的 clip 区裁掉的部件）v1 接受误差，v2 再算父链 clip 交集。
 - **结论**：R2.2 v1 = 快照 rect 倒序命中（绘制序近似 z 序）+ 可见性，不做 clip 交集。
+
+---
+
+## 实现终验（2026-08-29 真机，全部经 lua.eval/新命令在 test_res002 PIE 实证）
+
+### 机制定稿（与 R0 推论一致 + 三处实测修正）
+
+- **vp 状态机**在 dbg.lua：`{x, y, down}` 逻辑坐标态 + 步态序列（vp_program，帧首消费）
+  + 保持态（vp_hold 按住 / vp 驻留 hover）；注入兑现点 = on_frame_state 钩子克隆 st 覆写。
+- **指针覆写**：core.frame_reset 在 vp 激活时以 vp 覆写指针缓存；widget 层
+  `base.screen:input_mouse()` 直读全部收敛到 `core.pointer()`（slider/joystick/kit/
+  container/sortable_list；page_diag 是刻意的引擎原值探针，保留）。
+- **实测修正 1（命中测试）**：finish 顺序里容器晚于子控件 → 直接倒序会被父容器
+  截胡（pscroll 静态 content 面板盖住下方全部条目）。定稿 = static 控件不标
+  interactive + 剔除「是其他候选祖先」的容器 + 剩余按 order 倒序。
+- **实测修正 2（拖放落点）**：命中件可能是放置目标的子件（sortable 行的 drag 子件
+  挡住 drop）——落点解析上溯最近的 `enable_drop` 祖先（core 在 begin 时记录
+  frame.drop，快照条目带 drop 标记）。
+- **实测修正 3（按钮长按潜伏 bug）**：button_impl 的 `interact_dispatch(st, o)` 的 st
+  是块内 local（越界 nil），on_long_press 从未真实触发——已修复（st 提升到 begin
+  作用域），vp 长按实测 800ms 处触发 on_long_press。
+
+### 逐命令真机结果
+
+| 命令 | 证据 |
+| --- | --- |
+| tap | hub 入口/cgui_bench/游戏件菜单连点全绿（文本命中叶子→祖先） |
+| click_ui/click_at | 注入统一 state_inject；popup 点遮罩关闭（click_at 150,1300 命中 mask） |
+| input_text | bi_color 输入 #FF8800FF 下帧生效（st.on_input 注入） |
+| press_ui/release_ui | kit_joy 按住 vec=(1,0)/(0,-1) len=1.00「按住中」→ 松开「已松开」 |
+| set_value | kit_segs_sl 设 3 → actual=3（vp 点击轨道 + on_real_click 提交 on_commit） |
+| hover_ui | kit_tip_cell1 保持态 → tooltip overlay 开出（精铁剑/攻击+120 入快照） |
+| drag_ui | sortable row5→row1：载荷 {key,index,_sortable} 捕获，on_move(row5,row1)，视觉序重排 |
+| scroll_ui | kit_pscroll delta_y=120/200 → offset 精确变化 |
+| pick | kit_quality 展开→选项「高」点击→菜单关闭（业务 dummy state 故选中值不变，机制已对） |
+| long_press_ui | kit_gesture_btn 按住 800ms 处 on_long_press 触发（松手后 on_click 覆盖显示，符合真实语义） |
+| key_down/key_up | U 关商店 / Y 开背包（游戏面板验收场景实证） |
+
+### 场景脚本（R3）与回归
+
+- save_as/{$名}/wait_for/assert_text 单测 + 真机链路全绿（变量默认取
+  clickable_ancestor/id，find→click 串联实证）。
+- **bench_sweep 重写**：0.8.0 的 150 行 ps1 逐步往返 → 0.8.2 场景 71 步一次调用
+  （test/0.8.2/case/bench_sweep082.ps1），全绿 + 日志 errors=0。
+- **存量界面逐面验收**（test/0.8.2/case/game_panels082.ps1，34 步全绿 + errors=0）：
+  商店（cgui ShopUI：tab 切换+断言+U 键关闭）/ 背包（cgui BagUI：Y 键开+整理+X 关）/
+  GM（**base.ui 旧体系，find_ui 只定位不可操作——R4 边界确认，非回归**）/
+  HUD（hud_shop 商店入口 = 2D 场景 cgui 覆盖件，已操作生效）/ 调试台（sweep 全覆盖）。
+
+### 遗留边界（与 cgui_mcp.md §5 同步）
+
+- sortable_list 拖拽中的边缘自动滚动依赖引擎 view_state().drag，vp 不经过——
+  v1 接受（目标行可先 scroll_ui 滚进视口）。
+- 引擎 scroll 容器（cg.scroll/vlist）不支持程序滚动——scroll_ui 报 actionable 错误。
+- 世界拾取（点地面/选怪）仍是非 cgui 场景层交互，列开放研究项。

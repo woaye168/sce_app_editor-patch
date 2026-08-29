@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"run_scenario","arguments":{"project_path":"c:\\Users\\woaye\\Documents\\SCE Projects\\test_res002","steps":[{"op":"note","text":"R3 语法验证"},{"op":"invoke","id":"lua.find_ui","args":{"q":"cgui_bench"},"save_as":"bench"},{"op":"invoke","id":"lua.click_ui","args":{"id":"{$bench}"}},{"op":"wait_for","q":"内置组件","timeout_ms":3000},{"op":"assert_text","q":"关闭调试台","present":true},{"op":"assert_text","q":"不存在的内容xyz","present":false}]}}}

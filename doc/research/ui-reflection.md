@@ -59,14 +59,22 @@
 - capture_game crop 换算链：游戏逻辑 →（× rw/gw，gw 来自 lua.game_info）→ 编辑器逻辑 →（× 帧宽/编辑器逻辑宽）
   → 帧像素。真机验证：find_ui 取商店按钮 rect → crop 截出正好是该按钮。
 
-## 能力边界（诚实清单）
+## 能力边界（诚实清单，0.8.2 更新）
 
 | 操作 | 形态 | 状态 |
 | --- | --- | --- |
-| find_ui（id/文本子串、kind=click/input 盘点） | cgui 快照 + base.ui 树 | ✅ |
-| click_ui / click_at | 注册回调直调 + state 注入兜底 | ✅ |
-| input_text | on_input 回调直调 | ✅ |
-| press_ui / release_ui（joystick 持续方向输入） | sim 槽位每帧驱动 vec | ✅（真机：按住 len=1.00 → 松开归零） |
-| long_press_ui | on_long_press 回调直调 | ✅（代码路径同 click） |
-| hover/移入 | 引擎拉取真实指针，脚本层不可注入 | ❌ 诚实报错 + 替代方案提示 |
+| find_ui（id/文本子串、kind=click/input/scroll 盘点） | cgui 快照 + base.ui 树 | ✅ |
+| click_ui / click_at | state 注入（0.8.2 起唯一路径，注册回调已删除） | ✅ |
+| tap / pick（复合：文本一步点 / 下拉一步选） | find + 注入 | ✅（0.8.2 新增） |
+| input_text | st.on_input 字段注入（0.8.2 起） | ✅ |
+| press_ui / release_ui（joystick 持续方向输入） | 虚拟指针按住（0.8.2 起，sim 槽位已删） | ✅ |
+| long_press_ui | 虚拟指针按住超时 | ✅（0.8.2 起） |
+| set_value（slider） | 按值反算轨道坐标 + 虚拟指针点击（返回实际生效值） | ✅（0.8.2 起） |
+| hover/移入 | **0.8.2 起真实悬停**：虚拟指针保持态（enter/leave 沿齐全，tooltip 实测开出） | ✅（0.8.2 解决） |
+| drag_ui（拖放/排序/偏移） | 虚拟指针帧序列 + imgui.data() 载荷捕获 + enable_drop 落点解析 | ✅（0.8.2 新增，sortable_list 重排真机过） |
+| scroll_ui（pscroll 直驱） | pscroll 挂载 scroll_to 句柄 | ✅（0.8.2 新增；引擎 scroll 容器报 actionable 错误） |
+| key_down / key_up（键盘按下/松开/按住） | base.event.on_key_down/up 脚本直调（与物理按键同分发） | ✅（0.8.2 新增，Q1 实测通过） |
+| eval（游戏 VM 逃生舱） | dbg_bus commands.eval 经桥薄转发（danger 级） | ✅（0.8.2 新增） |
 | base.ui 持久树控件（编辑器侧/游戏侧） | 只定位（rect），不可点击 | 部分（点击无注入通道） |
+
+> 0.8.2 虚拟指针机制与实测结论详见 [virtual-pointer.md](virtual-pointer.md)。

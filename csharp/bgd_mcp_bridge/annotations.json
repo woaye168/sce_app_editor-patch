@@ -82,7 +82,7 @@
       "risk": "read"
     },
     "lua.find_ui": {
-      "description": "查询 UI 控件（按 id/显示文本子串模糊匹配，返回逻辑坐标 rect 与可点/可输入/可按住标记；文本命中叶子时附 clickable_ancestor 可直接点击；kind=click/input 快速盘点可交互元素；scope=editor 查编辑器 UI）。UI 调试闭环第一步：find_ui 定位 → click_ui/input_text 操作 → capture_game(crop) 验证",
+      "description": "查询 UI 控件（按 id/显示文本子串模糊匹配，返回逻辑坐标 rect 与可点/可输入/可滚动标记；文本命中叶子时附 clickable_ancestor 可直接点击；kind=click/input/scroll 快速盘点）。UI 调试闭环第一步：find_ui 定位 → lua.tap/lua.pick 一步操作（或 click_ui/input_text 精确操作）→ capture_game(crop) 验证",
       "aliases": ["find_ui", "查控件", "找控件", "坐标", "查找", "按钮在哪", "定位"],
       "tags": ["UI", "控件", "调试", "坐标"],
       "risk": "read",
@@ -145,10 +145,56 @@
       "example": "{\"id\":\"lua.long_press_ui\",\"args\":{\"id\":\"entry\"}}"
     },
     "lua.hover_ui": {
-      "description": "悬停/移入（暂无法模拟：引擎输入为每帧拉取真实指针，脚本层不可注入；调用返回原因与替代方案）",
-      "aliases": ["hover_ui", "悬停", "移入", "hover"],
+      "description": "悬停/移入（0.8.2 起真实悬停：虚拟指针驻留控件中心，保持态每帧覆写 hover 含 enter/leave 沿；验证 tooltip/hover 样式配 capture_game(crop) 判读）",
+      "aliases": ["hover_ui", "悬停", "移入", "hover", "移上去"],
       "tags": ["UI", "悬停", "调试"],
-      "risk": "read"
+      "risk": "write",
+      "precondition": "调试进行中；目标控件 interactive"
+    },
+    "lua.drag_ui": {
+      "description": "拖拽（虚拟指针逐帧序列）：{from_id, to_id} 拖放/排序（落点=目标中心，on_drop 携源控件载荷）；{from_id, dx, dy} 相对偏移（摇杆/画布）",
+      "aliases": ["drag_ui", "拖", "拽", "拖动", "拖拽", "排序"],
+      "tags": ["UI", "拖拽", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中",
+      "example": "{\"id\":\"lua.drag_ui\",\"args\":{\"from_id\":\"row5/drag\",\"to_id\":\"row1/drag\"}}"
+    },
+    "lua.scroll_ui": {
+      "description": "受控滚动（pscroll 容器 scroll_to 直驱；delta_y 逻辑 px 相对增量，正=向下查看更多内容；引擎 scroll 容器不支持会报 actionable 错误）",
+      "aliases": ["scroll_ui", "滚动", "下滑", "上滑", "翻页"],
+      "tags": ["UI", "滚动", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中；目标为 pscroll 容器（find_ui scrollable=true）"
+    },
+    "lua.tap": {
+      "description": "点一下（复合命令：按文本/id 找控件→自动跟 clickable_ancestor→点击，一步完成；多命中取 id 序第一个，操作文本按钮的首选）",
+      "aliases": ["tap", "点", "点一下", "按", "点击文本"],
+      "tags": ["UI", "点击", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中",
+      "example": "{\"id\":\"lua.tap\",\"args\":{\"q\":\"商店\"}}"
+    },
+    "lua.pick": {
+      "description": "下拉选择（复合命令：q 定位下拉控件→自动展开 anchor→点菜单项，一步完成；item 为菜单项文本子串；已展开时幂等）",
+      "aliases": ["pick", "选择", "下拉选", "选项"],
+      "tags": ["UI", "下拉", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中",
+      "example": "{\"id\":\"lua.pick\",\"args\":{\"q\":\"画质\",\"item\":\"高\"}}"
+    },
+    "lua.key_down": {
+      "description": "键盘按下（引擎按键事件转发，与真实物理按键同分发；按住 = down 后不 up）",
+      "aliases": ["key_down", "按键", "按下键盘", "按住键"],
+      "tags": ["键盘", "输入", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中"
+    },
+    "lua.key_up": {
+      "description": "键盘松开（配合 key_down；文本输入走 lua.input_text 不逐键模拟）",
+      "aliases": ["key_up", "松开键盘", "抬键"],
+      "tags": ["键盘", "输入", "调试"],
+      "risk": "write",
+      "precondition": "调试进行中"
     },
     "lua.eval": {
       "description": "游戏 VM（StateGame）逃生舱：pcall 执行任意 Lua 代码（游戏侧调试/探测用；编辑器 VM 用 lua.run_lua；danger 级默认放行，调用进审计日志）",

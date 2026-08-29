@@ -1,6 +1,7 @@
 -- bgd_mcp_bridge / ui_loop：0.8.0 UI 闭环调试（自 main.lua 拆出，单文件职责纪律）
 -- 职责：find_ui / click_ui / click_at / input_text / press_ui / release_ui /
---   long_press_ui / set_value / hover_ui / game_info 十个 handler + lobby 跨 VM 总线管线。
+--   long_press_ui / set_value / hover_ui / game_info / eval +
+--   0.8.2 增量（drag_ui / scroll_ui / tap / pick / key_down / key_up）——全部薄转发。
 -- 游戏侧经引擎 lobby 总线直达 StateGame 的 dbg_bus 端点（bgd 框架游戏侧模块）：
 --   编辑器 → 游戏：send_luastate_broadcast('bgd_dbg_cmd', { id, cmd, args })
 --   游戏 → 编辑器：bgd_dbg_result { id, ok, json, result }（result 为 JSON 字符串或文本）
@@ -172,9 +173,10 @@ function M.setup(ctx)
         return vm_call('release_ui', { id = type(params) == 'table' and params.id or nil }, id)
     end
 
-    -- 长按（调 on_long_press 回调）
+    -- 长按（虚拟指针按住超时触发 on_long_press；hold_ms 可选，默认 800）
     handlers.long_press_ui = function(params, id)
-        return vm_call('long_press_ui', { id = type(params) == 'table' and params.id or nil }, id)
+        return vm_call('long_press_ui', { id = type(params) == 'table' and params.id or nil,
+            hold_ms = type(params) == 'table' and params.hold_ms or nil }, id)
     end
 
     -- 数值直设（slider 滑块）
@@ -184,9 +186,45 @@ function M.setup(ctx)
             id)
     end
 
-    -- 悬停/移入（游戏侧诚实报错：引擎输入拉取式不可脚本注入）
+    -- 悬停/移入（0.8.2 起真实悬停：虚拟指针驻留保持态）
     handlers.hover_ui = function(params, id)
         return vm_call('hover_ui', { id = type(params) == 'table' and params.id or nil }, id)
+    end
+
+    -- 拖拽（0.8.2 虚拟指针）：{from_id, to_id} 拖放/排序 或 {from_id, dx, dy} 相对偏移
+    handlers.drag_ui = function(params, id)
+        return vm_call('drag_ui', {
+            from_id = type(params) == 'table' and params.from_id or nil,
+            to_id = type(params) == 'table' and params.to_id or nil,
+            dx = type(params) == 'table' and params.dx or nil,
+            dy = type(params) == 'table' and params.dy or nil,
+        }, id)
+    end
+
+    -- 受控滚动（0.8.2：pscroll 容器 scroll_to 直驱；delta_y 逻辑 px 相对增量）
+    handlers.scroll_ui = function(params, id)
+        return vm_call('scroll_ui', { id = type(params) == 'table' and params.id or nil,
+            delta_y = type(params) == 'table' and params.delta_y or nil }, id)
+    end
+
+    -- 复合：找文本/id → 跟 clickable_ancestor → 点击一步完成（0.8.2）
+    handlers.tap = function(params, id)
+        return vm_call('tap', { q = type(params) == 'table' and params.q or nil }, id)
+    end
+
+    -- 复合：dropdown 展开 + 选项一步完成（0.8.2）
+    handlers.pick = function(params, id)
+        return vm_call('pick', { q = type(params) == 'table' and params.q or nil,
+            item = type(params) == 'table' and params.item or nil }, id)
+    end
+
+    -- 键盘按下/松开（0.8.2：引擎按键事件转发，按住 = down 后不 up）
+    handlers.key_down = function(params, id)
+        return vm_call('key_down', { key = type(params) == 'table' and params.key or nil }, id)
+    end
+
+    handlers.key_up = function(params, id)
+        return vm_call('key_up', { key = type(params) == 'table' and params.key or nil }, id)
     end
 
     -- 游戏侧 eval 逃生舱（StateGame VM 内 pcall 任意 Lua；danger 级，与编辑器侧 run_lua 同级）

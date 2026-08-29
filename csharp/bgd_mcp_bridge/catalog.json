@@ -1,6 +1,6 @@
 {
   "engine_version": "13",
-  "generated_at": "2026-08-29 08:53:19",
+  "generated_at": "2026-08-29 10:47:19",
   "capabilities": [
     {
       "id": "svc.EditorSettingsManager.GetObjcetNumberValue",
@@ -4732,13 +4732,13 @@
       "executor": "lua",
       "method": "hover_ui",
       "returns": "object",
-      "risk": "read",
+      "risk": "write",
       "params": [
         {
           "name": "id",
           "type": "string",
           "required": true,
-          "description": "控件 id（hover 暂无法模拟，调用返回原因说明与替代方案）"
+          "description": "控件 id（真实悬停保持态：虚拟指针驻留，每帧覆写 hover+enter/leave 沿，直到其他虚拟指针命令接管；验证 tooltip/hover 样式配 capture_game crop 判读）"
         }
       ]
     },
@@ -4754,6 +4754,126 @@
           "type": "string",
           "required": true,
           "description": "游戏 VM（StateGame）内 pcall 执行任意 Lua 代码（游戏侧逃生舱，编辑器侧用 lua.run_lua）"
+        }
+      ]
+    },
+    {
+      "id": "lua.drag_ui",
+      "executor": "lua",
+      "method": "drag_ui",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "from_id",
+          "type": "string",
+          "required": true,
+          "description": "拖拽源控件 id"
+        },
+        {
+          "name": "to_id",
+          "type": "string",
+          "required": false,
+          "description": "目标控件 id（拖放/排序，落点=目标中心；与 dx/dy 互斥）"
+        },
+        {
+          "name": "dx",
+          "type": "number",
+          "required": false,
+          "description": "相对偏移 x 逻辑 px（摇杆/画布用；与 to_id 互斥）"
+        },
+        {
+          "name": "dy",
+          "type": "number",
+          "required": false,
+          "description": "相对偏移 y 逻辑 px"
+        }
+      ]
+    },
+    {
+      "id": "lua.scroll_ui",
+      "executor": "lua",
+      "method": "scroll_ui",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true,
+          "description": "pscroll 容器 id（find_ui 返回中 scrollable=true 的）"
+        },
+        {
+          "name": "delta_y",
+          "type": "number",
+          "required": true,
+          "description": "滚动增量逻辑 px（正=向下查看更多内容）"
+        }
+      ]
+    },
+    {
+      "id": "lua.tap",
+      "executor": "lua",
+      "method": "tap",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "q",
+          "type": "string",
+          "required": true,
+          "description": "控件名/id/显示文本子串（与 find_ui 同语义）：找文本→跟 clickable_ancestor→点击一步完成，多命中取 id 序第一个"
+        }
+      ]
+    },
+    {
+      "id": "lua.pick",
+      "executor": "lua",
+      "method": "pick",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "q",
+          "type": "string",
+          "required": true,
+          "description": "下拉控件定位（id 或当前选中项文本子串）"
+        },
+        {
+          "name": "item",
+          "type": "string",
+          "required": true,
+          "description": "菜单项文本子串（展开+选项一步完成；已展开时幂等）"
+        }
+      ]
+    },
+    {
+      "id": "lua.key_down",
+      "executor": "lua",
+      "method": "key_down",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "key",
+          "type": "string",
+          "required": true,
+          "description": "键名（如 \"W\"/\"F1\"，常量见 bgd_const.keyboard）：按下（不调 key_up 则保持按住）"
+        }
+      ]
+    },
+    {
+      "id": "lua.key_up",
+      "executor": "lua",
+      "method": "key_up",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "key",
+          "type": "string",
+          "required": true,
+          "description": "键名：松开"
         }
       ]
     },

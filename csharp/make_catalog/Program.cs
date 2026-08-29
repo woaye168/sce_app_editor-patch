@@ -403,10 +403,39 @@ static class CatalogGenerator
             "write",
             [Param("id", "string", true, null, "控件 id（find_ui 返回中 long_pressable=true 的）")]);
         yield return Entry("lua.hover_ui", "lua", "hover_ui", "object",
-            "read",
-            [Param("id", "string", true, null, "控件 id（hover 暂无法模拟，调用返回原因说明与替代方案）")]);
+            "write",
+            [Param("id", "string", true, null, "控件 id（真实悬停保持态：虚拟指针驻留，每帧覆写 hover+enter/leave 沿，直到其他虚拟指针命令接管；验证 tooltip/hover 样式配 capture_game crop 判读）")]);
         yield return Entry("lua.eval", "lua", "eval", "object", "danger",
             [Param("code", "string", true, null, "游戏 VM（StateGame）内 pcall 执行任意 Lua 代码（游戏侧逃生舱，编辑器侧用 lua.run_lua）")]);
+        yield return Entry("lua.drag_ui", "lua", "drag_ui", "object",
+            "write",
+            [
+                Param("from_id", "string", true, null, "拖拽源控件 id"),
+                Param("to_id", "string", false, null, "目标控件 id（拖放/排序，落点=目标中心；与 dx/dy 互斥）"),
+                Param("dx", "number", false, null, "相对偏移 x 逻辑 px（摇杆/画布用；与 to_id 互斥）"),
+                Param("dy", "number", false, null, "相对偏移 y 逻辑 px"),
+            ]);
+        yield return Entry("lua.scroll_ui", "lua", "scroll_ui", "object",
+            "write",
+            [
+                Param("id", "string", true, null, "pscroll 容器 id（find_ui 返回中 scrollable=true 的）"),
+                Param("delta_y", "number", true, null, "滚动增量逻辑 px（正=向下查看更多内容）"),
+            ]);
+        yield return Entry("lua.tap", "lua", "tap", "object",
+            "write",
+            [Param("q", "string", true, null, "控件名/id/显示文本子串（与 find_ui 同语义）：找文本→跟 clickable_ancestor→点击一步完成，多命中取 id 序第一个")]);
+        yield return Entry("lua.pick", "lua", "pick", "object",
+            "write",
+            [
+                Param("q", "string", true, null, "下拉控件定位（id 或当前选中项文本子串）"),
+                Param("item", "string", true, null, "菜单项文本子串（展开+选项一步完成；已展开时幂等）"),
+            ]);
+        yield return Entry("lua.key_down", "lua", "key_down", "object",
+            "write",
+            [Param("key", "string", true, null, "键名（如 \"W\"/\"F1\"，常量见 bgd_const.keyboard）：按下（不调 key_up 则保持按住）")]);
+        yield return Entry("lua.key_up", "lua", "key_up", "object",
+            "write",
+            [Param("key", "string", true, null, "键名：松开")]);
         yield return Entry("lua.set_value", "lua", "set_value", "object",
             "write",
             [

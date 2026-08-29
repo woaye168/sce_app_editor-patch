@@ -150,6 +150,13 @@
       "tags": ["UI", "悬停", "调试"],
       "risk": "read"
     },
+    "lua.eval": {
+      "description": "游戏 VM（StateGame）逃生舱：pcall 执行任意 Lua 代码（游戏侧调试/探测用；编辑器 VM 用 lua.run_lua；danger 级默认放行，调用进审计日志）",
+      "aliases": ["eval", "游戏侧eval", "游戏内执行", "dbg_eval"],
+      "tags": ["lua", "逃生舱", "游戏侧", "调试"],
+      "risk": "danger",
+      "precondition": "调试进行中"
+    },
     "sys.server_info": {
       "description": "服务自身信息（版本/端口/目录规模/漂移状态）",
       "aliases": ["server_info"],

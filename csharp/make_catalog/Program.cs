@@ -405,6 +405,8 @@ static class CatalogGenerator
         yield return Entry("lua.hover_ui", "lua", "hover_ui", "object",
             "read",
             [Param("id", "string", true, null, "控件 id（hover 暂无法模拟，调用返回原因说明与替代方案）")]);
+        yield return Entry("lua.eval", "lua", "eval", "object", "danger",
+            [Param("code", "string", true, null, "游戏 VM（StateGame）内 pcall 执行任意 Lua 代码（游戏侧逃生舱，编辑器侧用 lua.run_lua）")]);
         yield return Entry("lua.set_value", "lua", "set_value", "object",
             "write",
             [

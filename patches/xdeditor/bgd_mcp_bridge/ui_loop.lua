@@ -189,6 +189,11 @@ function M.setup(ctx)
         return vm_call('hover_ui', { id = type(params) == 'table' and params.id or nil }, id)
     end
 
+    -- 游戏侧 eval 逃生舱（StateGame VM 内 pcall 任意 Lua；danger 级，与编辑器侧 run_lua 同级）
+    handlers.eval = function(params, id)
+        return vm_call('eval', { code = type(params) == 'table' and params.code or nil }, id)
+    end
+
     return handlers
 end
 

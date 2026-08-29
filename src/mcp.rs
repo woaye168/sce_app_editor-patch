@@ -229,7 +229,7 @@ fn tools_list() -> Value {
             {"name":"publish_project","description":"发布项目到创作者中心（分钟级耗时；danger 级默认放行，调用进审计日志）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"timeout_ms":{"type":"integer","default":600000}}}},
             {"name":"capture_game","description":"截取调试中的游戏画面/游戏截图（纯游戏画面+游戏 UI，不含编辑器界面；编辑器被遮挡/最小化均可后台截取），返回 png 路径，用 Read 查看。ratio 输出倍率（0.5/1/2/3/4）；crop={x,y,w,h} 只截视口局部（游戏视口逻辑坐标，原点=视口左上，越界自动 clamp）；max_width 输出宽度上限（默认 1280 防爆上下文，与 ratio 同给时为最终上限，传大值可放开）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"ratio":{"type":"number","default":1},"crop":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]},"max_width":{"type":"integer","default":1280}}}},
             {"name":"get_status","description":"获取编辑器状态（地图路径/调试中/弹窗抑制）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
-            {"name":"run_scenario","description":"场景脚本：把「起调试→操作 UI→验证」编成 steps 数组一次跑完，替代多次单步往返。步骤 op：invoke{id,args,timeout_ms}（调 lua.* 等桥能力，如 lua.tap/lua.pick/lua.hover_ui）/start_debug/stop_debug/capture{ratio,crop,max_width}/logs{source,tail_lines,match}/wait{ms}/note{text}/wait_for{q|id,present,timeout_ms}/assert_text{q,present}；步骤变量：任意步骤 save_as:\"名\" 存结果标量（默认 clickable_ancestor/id），后续步骤字符串字段写 {$名} 引用；默认遇错即停（stop_on_error=false 继续），每步结果截断 2KB","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"steps":{"type":"array","items":{"type":"object"}},"stop_on_error":{"type":"boolean","default":true}},"required":["steps"]}},
+            {"name":"run_scenario","description":"场景脚本：把「起调试→操作 UI→验证」编成 steps 数组一次跑完，替代多次单步往返。步骤 op：invoke{id,args,timeout_ms}（调 lua.* 等桥能力，如 lua.tap/lua.pick/lua.hover_ui）/start_debug/stop_debug/capture{ratio,crop,max_width}/capture_ui{q,pad,max_width}（find→局部截图一步，看单个UI用）/logs{source,tail_lines,match}/wait{ms}/note{text}/wait_for{q|id,present,timeout_ms}/assert_text{q,present}；步骤变量：任意步骤 save_as:\"名\" 存结果标量（默认 clickable_ancestor/id），后续步骤字符串字段写 {$名} 引用；默认遇错即停（stop_on_error=false 继续），每步结果截断 2KB","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"steps":{"type":"array","items":{"type":"object"}},"stop_on_error":{"type":"boolean","default":true}},"required":["steps"]}},
             {"name":"search_capabilities","description":"[在线透传桥 Gateway] 搜索编辑器能力（id/描述/别名/标签模糊匹配）。返回简化签名+风险级别，多数场景 search→invoke 两步完成调用；编辑器完整能力（能力目录数百条）都经此触达","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"query":{"type":"string","description":"关键词，可多个（空格分隔，全中优先、无全中自动回退部分命中）"},"limit":{"type":"integer","description":"返回条数，默认 5，上限 10"}},"required":["query"]}},
             {"name":"describe_capability","description":"[在线透传桥 Gateway] 查看能力完整定义（参数 JSON Schema/返回/风险/示例/前置条件），疑难时深查","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"id":{"type":"string","description":"能力 id（search 返回的）"}},"required":["id"]}},
             {"name":"invoke_capability","description":"[在线透传桥 Gateway] 统一调用入口。参数校验失败时错误内嵌 compact schema，按提示修正后重试即可","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"id":{"type":"string"},"args":{"type":"object","description":"调用参数"},"timeout_ms":{"type":"integer","description":"超时毫秒，默认 5000"}},"required":["id"]}},
@@ -297,9 +297,11 @@ fn with_hint(tool: &str, mut v: Value, args: &Value) -> Value {
         "start_debug" => Some(
             "验证画面用 capture_game 截图；排障用 get_game_logs（先 tail_lines=0 看文件信息，再用 match 过滤关键行）",
         ),
-        "capture_game" => {
-            Some("用 Read 查看 png；只看局部可传 crop={\"x\",\"y\",\"w\",\"h\"}（视口逻辑坐标）重截")
-        }
+        "capture_game" => Some(if args.get("crop").is_some() {
+            "用 Read 查看 png"
+        } else {
+            "用 Read 查看 png；只看某个 UI 不要截全图——用 run_scenario 的 capture_ui{q} 一步局部截图，或传 crop={\"x\",\"y\",\"w\",\"h\"}（视口逻辑坐标）重截"
+        }),
         "get_game_logs" => Some(if args.get("match").and_then(|v| v.as_str()).is_some() {
             "未命中或需上下文时可调宽正则，或按返回的 path 自行读取原文"
         } else if args.get("tail_lines").and_then(|v| v.as_u64()).unwrap_or(0) > 0 {

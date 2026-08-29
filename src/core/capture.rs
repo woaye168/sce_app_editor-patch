@@ -145,7 +145,7 @@ fn do_capture(
         ratio,
         max_width,
     };
-    let (cw, ch) = wgc_capture_mapped(main.hwnd, &path, &map)?;
+    let (cw, ch, nat_w, nat_h) = wgc_capture_mapped(main.hwnd, &path, &map)?;
 
     if open_explorer {
         let p = path.display().to_string().replace('/', "\\");
@@ -154,13 +154,25 @@ fn do_capture(
             .spawn();
     }
 
+    // 默认值可见性纪律：max_width 默认上限会静默降采样，必须显式回显
+    // 原尺寸与是否被缩放——否则 AI 拿缩放图误判像素级细节（缝隙/对齐）
+    let downscaled = nat_w > cw;
     let mut ret = json!({
         "path": super::editor::to_slash(&path),
         "width": cw,
         "height": ch,
+        "natural_width": nat_w,
+        "natural_height": nat_h,
+        "downscaled": downscaled,
         "ratio": ratio,
         "mode": "game_viewport",
     });
+    if downscaled {
+        ret["note"] = json!(format!(
+            "图片已被 max_width 降采样（{}x{} → {}x{}）：像素级判读（缝隙/对齐/字体）请显式调大 max_width 重截",
+            nat_w, nat_h, cw, ch
+        ));
+    }
     if let Some((x, y, w, h)) = crop {
         ret["crop"] = json!({ "x": x, "y": y, "w": w, "h": h });
     }
@@ -330,13 +342,13 @@ fn find_window_by_class(pid: u32, class: &str, skip_title: Option<&str>) -> Opti
     Some(WindowInfo { hwnd: chosen })
 }
 
-/// WGC 截窗口 + 帧内换算裁剪 + 倍率重采样。返回输出图 (宽, 高)。
+/// WGC 截窗口 + 帧内换算裁剪 + 倍率重采样。返回 (输出宽, 输出高, max_width 缩放前宽, 缩放前高)。
 #[cfg(windows)]
 fn wgc_capture_mapped(
     hwnd: *mut std::ffi::c_void,
     path: &Path,
     map: &ViewportMap,
-) -> Result<(u32, u32)> {
+) -> Result<(u32, u32, u32, u32)> {
     use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
     use windows_capture::frame::Frame;
     use windows_capture::graphics_capture_api::InternalCaptureControl;
@@ -434,6 +446,8 @@ fn wgc_capture_mapped(
         )
     };
     // max_width 最终上限（MCP 上下文防爆；与 ratio 同时给出时 max_width 为最终上限）
+    // nat_* = 缩放前尺寸：调用方据此回显 downscaled，防 AI 拿缩放图误判像素级细节
+    let (nat_w, nat_h) = (ow, oh);
     let (out_img, ow, oh) = match map.max_width {
         Some(mw) if mw >= 1 && ow > mw => {
             let nh = ((oh as f64 * mw as f64 / ow as f64).round() as u32).max(1);
@@ -455,5 +469,5 @@ fn wgc_capture_mapped(
         enc.write_image(&out_img, ow, oh, image::ExtendedColorType::Rgba8)
             .map_err(|e| anyhow!("保存截图失败: {e}"))?;
     }
-    Ok((ow, oh))
+    Ok((ow, oh, nat_w, nat_h))
 }

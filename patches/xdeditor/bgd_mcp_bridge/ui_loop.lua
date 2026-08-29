@@ -130,102 +130,33 @@ function M.setup(ctx)
         if scope == 'editor' then
             return find_editor_ui(params)
         end
-        return vm_call('find_ui', {
-            q = type(params) == 'table' and params.q or nil,
-            kind = type(params) == 'table' and params.kind or nil,
-        }, id)
+        return vm_call('find_ui', params, id)
     end
 
-    -- 游戏侧信息（逻辑分辨率等）：find_ui rect / click_at / capture_game crop 的坐标系基准
-    handlers.game_info = function(_params, id)
-        return vm_call('game_info', {}, id)
+    -- 游戏侧 UI 命令一律全参透传（真薄转发）：参数白名单曾导致游戏侧新增参数
+    -- （如 0.8.3 tap/click_ui 的 expect/expect_absent 操作后验证）被桥静默吞掉——
+    -- 参数校验是游戏侧命令自己的职责（缺参/非法各自报 actionable 错误）。
+    local function passthrough(cmd)
+        return function(params, id)
+            return vm_call(cmd, type(params) == 'table' and params or {}, id)
+        end
     end
 
-    -- 按 id 点击游戏 UI 控件（注册回调直调 + state 注入兜底；等价真实点击业务效果）
-    handlers.click_ui = function(params, id)
-        return vm_call('click_ui', { id = type(params) == 'table' and params.id or nil }, id)
-    end
-
-    -- 逻辑坐标点击游戏 UI（命中最内层可点击控件）
-    handlers.click_at = function(params, id)
-        return vm_call('click_at',
-            { x = type(params) == 'table' and params.x or nil, y = type(params) == 'table' and params.y or nil },
-            id)
-    end
-
-    -- 输入框文本输入（直接调 on_input 回调，等价人工输入完整文本）
-    handlers.input_text = function(params, id)
-        return vm_call('input_text',
-            { id = type(params) == 'table' and params.id or nil, text = type(params) == 'table' and params.text or nil },
-            id)
-    end
-
-    -- 按住（joystick 等持续输入控件，x/y 方向 [-1,1]，持续到 release_ui）
-    handlers.press_ui = function(params, id)
-        return vm_call('press_ui',
-            { id = type(params) == 'table' and params.id or nil, x = type(params) == 'table' and params.x or nil,
-              y = type(params) == 'table' and params.y or nil },
-            id)
-    end
-
-    -- 松开（解除 press_ui 的模拟按住）
-    handlers.release_ui = function(params, id)
-        return vm_call('release_ui', { id = type(params) == 'table' and params.id or nil }, id)
-    end
-
-    -- 长按（虚拟指针按住超时触发 on_long_press；hold_ms 可选，默认 800）
-    handlers.long_press_ui = function(params, id)
-        return vm_call('long_press_ui', { id = type(params) == 'table' and params.id or nil,
-            hold_ms = type(params) == 'table' and params.hold_ms or nil }, id)
-    end
-
-    -- 数值直设（slider 滑块）
-    handlers.set_value = function(params, id)
-        return vm_call('set_value',
-            { id = type(params) == 'table' and params.id or nil, value = type(params) == 'table' and params.value or nil },
-            id)
-    end
-
-    -- 悬停/移入（0.8.2 起真实悬停：虚拟指针驻留保持态）
-    handlers.hover_ui = function(params, id)
-        return vm_call('hover_ui', { id = type(params) == 'table' and params.id or nil }, id)
-    end
-
-    -- 拖拽（0.8.2 虚拟指针）：{from_id, to_id} 拖放/排序 或 {from_id, dx, dy} 相对偏移
-    handlers.drag_ui = function(params, id)
-        return vm_call('drag_ui', {
-            from_id = type(params) == 'table' and params.from_id or nil,
-            to_id = type(params) == 'table' and params.to_id or nil,
-            dx = type(params) == 'table' and params.dx or nil,
-            dy = type(params) == 'table' and params.dy or nil,
-        }, id)
-    end
-
-    -- 受控滚动（0.8.2：pscroll 容器 scroll_to 直驱；delta_y 逻辑 px 相对增量）
-    handlers.scroll_ui = function(params, id)
-        return vm_call('scroll_ui', { id = type(params) == 'table' and params.id or nil,
-            delta_y = type(params) == 'table' and params.delta_y or nil }, id)
-    end
-
-    -- 复合：找文本/id → 跟 clickable_ancestor → 点击一步完成（0.8.2）
-    handlers.tap = function(params, id)
-        return vm_call('tap', { q = type(params) == 'table' and params.q or nil }, id)
-    end
-
-    -- 复合：dropdown 展开 + 选项一步完成（0.8.2）
-    handlers.pick = function(params, id)
-        return vm_call('pick', { q = type(params) == 'table' and params.q or nil,
-            item = type(params) == 'table' and params.item or nil }, id)
-    end
-
-    -- 键盘按下/松开（0.8.2：引擎按键事件转发，按住 = down 后不 up）
-    handlers.key_down = function(params, id)
-        return vm_call('key_down', { key = type(params) == 'table' and params.key or nil }, id)
-    end
-
-    handlers.key_up = function(params, id)
-        return vm_call('key_up', { key = type(params) == 'table' and params.key or nil }, id)
-    end
+    handlers.game_info = passthrough('game_info')         -- 游戏侧信息（逻辑分辨率等坐标系基准）
+    handlers.click_ui = passthrough('click_ui')           -- 按 id 点击（支持 expect/expect_absent 验证）
+    handlers.click_at = passthrough('click_at')           -- 逻辑坐标点击（命中最内层可点击控件）
+    handlers.input_text = passthrough('input_text')       -- 输入框文本输入（触发 on_input）
+    handlers.press_ui = passthrough('press_ui')           -- 按住（joystick 持续输入）
+    handlers.release_ui = passthrough('release_ui')       -- 松开（解除模拟按住）
+    handlers.long_press_ui = passthrough('long_press_ui') -- 长按（hold_ms 可选，默认 800）
+    handlers.set_value = passthrough('set_value')         -- 数值直设（slider）
+    handlers.hover_ui = passthrough('hover_ui')           -- 悬停（虚拟指针驻留保持态）
+    handlers.drag_ui = passthrough('drag_ui')             -- 拖拽：{from_id,to_id} 或 {from_id,dx,dy}
+    handlers.scroll_ui = passthrough('scroll_ui')         -- 受控滚动（pscroll scroll_to 直驱）
+    handlers.tap = passthrough('tap')                     -- 复合：找文本→跟祖先→点击（支持 expect）
+    handlers.pick = passthrough('pick')                   -- 复合：dropdown 展开+选项
+    handlers.key_down = passthrough('key_down')           -- 键盘按下（不调 key_up 则保持）
+    handlers.key_up = passthrough('key_up')               -- 键盘松开
 
     -- 游戏侧 eval 逃生舱（StateGame VM 内 pcall 任意 Lua；danger 级，与编辑器侧 run_lua 同级）
     handlers.eval = function(params, id)

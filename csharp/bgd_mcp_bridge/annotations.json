@@ -95,7 +95,7 @@
       "tags": ["UI", "点击", "调试"],
       "risk": "write",
       "precondition": "调试进行中；目标控件 clickable=true",
-      "example": "{\"id\":\"lua.click_ui\",\"args\":{\"id\":\"entry\"}}"
+      "example": "{\"id\":\"lua.click_ui\",\"args\":{\"id\":\"entry\",\"expect\":\"面板标题\"}}"
     },
     "lua.click_at": {
       "description": "按游戏视口逻辑坐标点击（命中最内层可点击控件；坐标与 find_ui rect 同系）",
@@ -167,12 +167,12 @@
       "precondition": "调试进行中；目标为 pscroll 容器（find_ui scrollable=true）"
     },
     "lua.tap": {
-      "description": "点一下（复合命令：按文本/id 找控件→自动跟 clickable_ancestor→点击，一步完成；多命中取 id 序第一个，操作文本按钮的首选）",
+      "description": "点一下（复合命令：按文本/id 找控件→自动跟 clickable_ancestor→点击，一步完成；多命中取 id 序第一个，操作文本按钮的首选；可带 expect/expect_absent 操作后自动断言文本出现/消失——注入成功≠业务生效，关键操作建议带验证）",
       "aliases": ["tap", "点", "点一下", "按", "点击文本"],
       "tags": ["UI", "点击", "调试"],
       "risk": "write",
       "precondition": "调试进行中",
-      "example": "{\"id\":\"lua.tap\",\"args\":{\"q\":\"商店\"}}"
+      "example": "{\"id\":\"lua.tap\",\"args\":{\"q\":\"商店\",\"expect\":\"钱包\"}}"
     },
     "lua.pick": {
       "description": "下拉选择（复合命令：q 定位下拉控件→自动展开 anchor→点菜单项，一步完成；item 为菜单项文本子串；已展开时幂等）",

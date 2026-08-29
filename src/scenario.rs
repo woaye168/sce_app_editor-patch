@@ -5,6 +5,7 @@
 //!   invoke      { id: <能力id>, args?, timeout_ms? }  调桥能力（lua.* 等）
 //!   start_debug / stop_debug {}                       调试启停（默认 restart_last_debug）
 //!   capture     { ratio?, crop?, max_width? }         截图（返回 png 路径）
+//!   capture_ui  { q, pad?, max_width? }               复合：find_ui(q) 拿 rect → 局部截图一步完成
 //!   logs        { source?, tail_lines?, match? }      读日志（含 errors 上浮）
 //!   wait        { ms }                                等待（界面动画/协议往返）
 //!   note        { text }                              标记注释（对齐结果与步骤）
@@ -123,6 +124,38 @@ fn extract_save(result: &Value, save_field: Option<&str>) -> Result<Value> {
     }
 }
 
+/// capture_ui 步骤：find_ui(q) 拿控件 rect → 按 rect+pad 局部截图。看单个 UI 用此步，
+/// 免「先 find 再手抄坐标 crop」两次往返（全视口截图只在看整体布局时用）。
+/// max_width 缺省 640（响应回显 downscaled/natural_*，像素级判读时显式调大）。
+fn step_capture_ui(project: &std::path::Path, step: &Value) -> Result<Value> {
+    let q = step
+        .get("q")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow!("capture_ui 步骤缺 q（文本/id 子串，与 find_ui 同语义）"))?;
+    let pad = step.get("pad").and_then(|v| v.as_f64()).unwrap_or(8.0);
+    let max_width = step
+        .get("max_width")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32)
+        .or(Some(640));
+    let port = crate::mcp::require_online_pub(project)?;
+    let res = bridge_client::bridge_invoke(port, "lua.find_ui", json!({ "q": q }), 10_000)?;
+    let item = res
+        .get("items")
+        .and_then(|a| a.get(0))
+        .ok_or_else(|| anyhow!("capture_ui 未命中：'{q}'（先 find_ui 确认文本/id）"))?;
+    let g = |r: &Value, k: &str| r.get(k).and_then(|v| v.as_f64());
+    let rect = item
+        .get("rect")
+        .and_then(|r| match (g(r, "x"), g(r, "y"), g(r, "w"), g(r, "h")) {
+            (Some(x), Some(y), Some(w), Some(h)) => Some((x, y, w, h)),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow!("capture_ui 命中项无 rect（不可见？）：'{q}'"))?;
+    let crop = Some((rect.0 - pad, rect.1 - pad, rect.2 + pad * 2.0, rect.3 + pad * 2.0));
+    capture::capture_game_mcp(project, 1.0, crop, max_width)
+}
+
 pub fn run_scenario(args: &Value) -> Result<Value> {
     let project = crate::mcp::resolve_project_pub(Some(args))?;
     let steps = args
@@ -189,6 +222,7 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                     .or(Some(1280));
                 capture::capture_game_mcp(&project, ratio, crop, max_width)
             }
+            "capture_ui" => step_capture_ui(&project, &step),
             "logs" => {
                 let source = step.get("source").and_then(|v| v.as_str()).unwrap_or("");
                 let tail = step
@@ -241,7 +275,7 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
             }
-            _ => Err(anyhow!("未知 op: '{op}'（可用：invoke/start_debug/stop_debug/capture/logs/wait/note/wait_for/assert_text）")),
+            _ => Err(anyhow!("未知 op: '{op}'（可用：invoke/start_debug/stop_debug/capture/capture_ui/logs/wait/note/wait_for/assert_text）")),
         };
         match r {
             Ok(v) => {

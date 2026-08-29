@@ -375,7 +375,11 @@ static class CatalogGenerator
             ]);
         yield return Entry("lua.click_ui", "lua", "click_ui", "object",
             "write",
-            [Param("id", "string", true, null, "find_ui 返回的控件 id（支持末段简写；仅 clickable=true 的 cgui 控件可点）")]);
+            [
+                Param("id", "string", true, null, "find_ui 返回的控件 id（支持末段简写；仅 clickable=true 的 cgui 控件可点；浮层项等易失效 id 建议改用 lua.tap/lua.pick）"),
+                Param("expect", "string", false, null, "操作后验证：延迟数帧断言该文本已出现（注入成功≠业务生效，建议关键操作带上）"),
+                Param("expect_absent", "string", false, null, "操作后验证：断言该文本已消失（如关面板）"),
+            ]);
         yield return Entry("lua.click_at", "lua", "click_at", "object",
             "write",
             [
@@ -423,7 +427,11 @@ static class CatalogGenerator
             ]);
         yield return Entry("lua.tap", "lua", "tap", "object",
             "write",
-            [Param("q", "string", true, null, "控件名/id/显示文本子串（与 find_ui 同语义）：找文本→跟 clickable_ancestor→点击一步完成，多命中取 id 序第一个")]);
+            [
+                Param("q", "string", true, null, "控件名/id/显示文本子串（与 find_ui 同语义）：找文本→跟 clickable_ancestor→点击一步完成，多命中取 id 序第一个"),
+                Param("expect", "string", false, null, "操作后验证：延迟数帧断言该文本已出现（注入成功≠业务生效，开面板类操作建议带上）"),
+                Param("expect_absent", "string", false, null, "操作后验证：断言该文本已消失（如关面板）"),
+            ]);
         yield return Entry("lua.pick", "lua", "pick", "object",
             "write",
             [

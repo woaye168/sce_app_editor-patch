@@ -137,10 +137,11 @@ fn tool_publish_project(args: &Value) -> Result<Value> {
 fn tool_capture_game(args: &Value) -> Result<Value> {
     let project = resolve_project(Some(args))?;
     let ratio = args.get("ratio").and_then(|v| v.as_f64()).unwrap_or(1.0);
-    // R1.2：crop = {x,y,w,h} 游戏视口逻辑坐标（原点=视口左上，与 lua.get_game_view_rect 同系）
-    let crop = match args.get("crop") {
-        None => None,
-        Some(c) => {
+    // q = 控件文本/id 子串：find_ui 定位后按其 rect 局部截图（pad 可选，缺省 8）。
+    // 人体工学关键路径：看单个 UI 直接带 q，不截全图（0.8.3 用户实测反馈定稿）
+    let q = args.get("q").and_then(|v| v.as_str());
+    let crop = match (args.get("crop"), q) {
+        (Some(c), _) => {
             let g = |k: &str| c.get(k).and_then(|v| v.as_f64());
             match (g("x"), g("y"), g("w"), g("h")) {
                 (Some(x), Some(y), Some(w), Some(h)) => Some((x, y, w, h)),
@@ -151,6 +152,25 @@ fn tool_capture_game(args: &Value) -> Result<Value> {
                 }
             }
         }
+        (None, Some(q)) if !q.is_empty() => {
+            let port = require_online(&project)?;
+            let res = bridge_client::bridge_invoke(port, "lua.find_ui", json!({ "q": q }), 10_000)?;
+            let item = res
+                .get("items")
+                .and_then(|a| a.get(0))
+                .ok_or_else(|| anyhow!("q 未命中：'{q}'（先 find_ui 确认文本/id）"))?;
+            let g = |r: &Value, k: &str| r.get(k).and_then(|v| v.as_f64());
+            let rect = item
+                .get("rect")
+                .and_then(|r| match (g(r, "x"), g(r, "y"), g(r, "w"), g(r, "h")) {
+                    (Some(x), Some(y), Some(w), Some(h)) => Some((x, y, w, h)),
+                    _ => None,
+                })
+                .ok_or_else(|| anyhow!("q 命中项无 rect（不可见？）：'{q}'"))?;
+            let pad = args.get("pad").and_then(|v| v.as_f64()).unwrap_or(8.0);
+            Some((rect.0 - pad, rect.1 - pad, rect.2 + pad * 2.0, rect.3 + pad * 2.0))
+        }
+        _ => None,
     };
     // max_width 缺省 1280（上下文防爆），与 ratio 同时给出时为最终上限
     let max_width = args
@@ -227,7 +247,7 @@ fn tools_list() -> Value {
             {"name":"stop_debug","description":"停止调试","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
             {"name":"get_game_logs","description":"获取游戏日志/编辑器日志/MCP桥日志的最新文件信息。tail_lines=0（默认）只回文件信息防爆上下文；match=正则时回命中行；tail_lines>0 回末尾原文。match/tail 模式下均附 errors 段：日志中的报错行（[error]/[ERROR]）单独上浮，防前置错误导致假阳性/假阴性漏判。同条行收纳：剥离行首[时间][pid]后相同的行只回最近一次并附(×N)计数。离线可用。source：game_client/game_server/service_core/xdeditor_client/bridge_main/bridge_audit，或聚合前缀（game/bridge），或 all；缺省 game","inputSchema":{"type":"object","properties":{"source":{"type":"string","default":"game","description":"日志源 key 或聚合前缀，缺省 game"},"tail_lines":{"type":"integer","default":0,"description":"返回末尾行数，0=只返回文件信息"},"match":{"type":"string","description":"正则过滤：回命中行（同条收纳+计数，上限100条），可与 tail_lines 同用"}}}},
             {"name":"publish_project","description":"发布项目到创作者中心（分钟级耗时；danger 级默认放行，调用进审计日志）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"timeout_ms":{"type":"integer","default":600000}}}},
-            {"name":"capture_game","description":"截取调试中的游戏画面/游戏截图（纯游戏画面+游戏 UI，不含编辑器界面；编辑器被遮挡/最小化均可后台截取），返回 png 路径，用 Read 查看。ratio 输出倍率（0.5/1/2/3/4）；crop={x,y,w,h} 只截视口局部（游戏视口逻辑坐标，原点=视口左上，越界自动 clamp）；max_width 输出宽度上限（默认 1280 防爆上下文，与 ratio 同给时为最终上限，传大值可放开）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"ratio":{"type":"number","default":1},"crop":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]},"max_width":{"type":"integer","default":1280}}}},
+            {"name":"capture_game","description":"截取调试中的游戏画面/游戏截图（纯游戏画面+游戏 UI，不含编辑器界面；编辑器被遮挡/最小化均可后台截取），返回 png 路径，用 Read 查看。q=\"控件文本或id子串\" 只截该 UI 局部（首选，免全图撑上下文；pad 控制留白，缺省 8）；crop={x,y,w,h} 手动截视口局部（游戏视口逻辑坐标，越界自动 clamp）；ratio 输出倍率（0.5/1/2/3/4）；max_width 输出宽度上限（默认 1280 防爆上下文，响应回显 downscaled/natural_width，像素级判读缝隙/字体时显式调大）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"q":{"type":"string","description":"控件文本/id 子串：find_ui 定位后局部截图（看单个 UI 的首选）"},"pad":{"type":"number","default":8},"ratio":{"type":"number","default":1},"crop":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]},"max_width":{"type":"integer","default":1280}}}},
             {"name":"get_status","description":"获取编辑器状态（地图路径/调试中/弹窗抑制）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
             {"name":"run_scenario","description":"场景脚本：把「起调试→操作 UI→验证」编成 steps 数组一次跑完，替代多次单步往返。步骤 op：invoke{id,args,timeout_ms}（调 lua.* 等桥能力，如 lua.tap/lua.pick/lua.hover_ui）/start_debug/stop_debug/capture{ratio,crop,max_width}/capture_ui{q,pad,max_width}（find→局部截图一步，看单个UI用）/logs{source,tail_lines,match}/wait{ms}/note{text}/wait_for{q|id,present,timeout_ms}/assert_text{q,present}；步骤变量：任意步骤 save_as:\"名\" 存结果标量（默认 clickable_ancestor/id），后续步骤字符串字段写 {$名} 引用；默认遇错即停（stop_on_error=false 继续），每步结果截断 2KB","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"steps":{"type":"array","items":{"type":"object"}},"stop_on_error":{"type":"boolean","default":true}},"required":["steps"]}},
             {"name":"search_capabilities","description":"[在线透传桥 Gateway] 搜索编辑器能力（id/描述/别名/标签模糊匹配）。返回简化签名+风险级别，多数场景 search→invoke 两步完成调用；编辑器完整能力（能力目录数百条）都经此触达","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"query":{"type":"string","description":"关键词，可多个（空格分隔，全中优先、无全中自动回退部分命中）"},"limit":{"type":"integer","description":"返回条数，默认 5，上限 10"}},"required":["query"]}},
@@ -297,10 +317,10 @@ fn with_hint(tool: &str, mut v: Value, args: &Value) -> Value {
         "start_debug" => Some(
             "验证画面用 capture_game 截图；排障用 get_game_logs（先 tail_lines=0 看文件信息，再用 match 过滤关键行）",
         ),
-        "capture_game" => Some(if args.get("crop").is_some() {
+        "capture_game" => Some(if args.get("q").is_some() || args.get("crop").is_some() {
             "用 Read 查看 png"
         } else {
-            "用 Read 查看 png；只看某个 UI 不要截全图——用 run_scenario 的 capture_ui{q} 一步局部截图，或传 crop={\"x\",\"y\",\"w\",\"h\"}（视口逻辑坐标）重截"
+            "用 Read 查看 png；只看某个 UI 不要截全图——重截带 q=\"控件文本/id\"（自动定位局部截图），或 crop={\"x\",\"y\",\"w\",\"h\"}（视口逻辑坐标）"
         }),
         "get_game_logs" => Some(if args.get("match").and_then(|v| v.as_str()).is_some() {
             "未命中或需上下文时可调宽正则，或按返回的 path 自行读取原文"

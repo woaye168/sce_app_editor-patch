@@ -1,6 +1,6 @@
 {
   "engine_version": "13",
-  "generated_at": "2026-08-29 13:58:19",
+  "generated_at": "2026-08-30 21:37:02",
   "capabilities": [
     {
       "id": "svc.EditorSettingsManager.GetObjcetNumberValue",
@@ -4542,7 +4542,7 @@
           "name": "code",
           "type": "string",
           "required": true,
-          "description": "任意 Lua 代码（pcall 执行，兜底逃生舱；默认 danger 需配置放行）"
+          "description": "任意 Lua 代码（pcall 执行，兜底逃生舱；danger 级默认放行，可用 config.json danger_deny 显式拒绝）"
         }
       ]
     },

@@ -63,10 +63,12 @@ fn subst_vars(v: &Value, vars: &Vars) -> Result<Value> {
                         .ok_or_else(|| anyhow!("变量未定义：${}（先在前置 find/invoke 步骤 save_as）", name));
                 }
             }
-            // 串内插值
+            // 串内插值（替换后从插入值之后继续扫——变量值本身含 {$ 模式
+            // 不会被二次展开，也不会误报「变量未定义」）
             let mut out = s.clone();
-            loop {
-                let Some(start) = out.find("{$") else { break };
+            let mut pos = 0;
+            while let Some(rel) = out[pos..].find("{$") {
+                let start = pos + rel;
                 let Some(endrel) = out[start..].find('}') else { break };
                 let end = start + endrel;
                 let name = &out[start + 2..end];
@@ -80,6 +82,7 @@ fn subst_vars(v: &Value, vars: &Vars) -> Result<Value> {
                     _ => return Err(anyhow!("变量 ${} 不是标量，不能串内插值", name)),
                 };
                 out.replace_range(start..=end, &text);
+                pos = start + text.len();
             }
             Value::String(out)
         }
@@ -133,17 +136,14 @@ fn step_capture_ui(project: &std::path::Path, step: &Value) -> Result<Value> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("capture_ui 步骤缺 q（文本/id 子串，与 find_ui 同语义）"))?;
     let pad = step.get("pad").and_then(|v| v.as_f64()).unwrap_or(8.0);
-    let max_width = step
-        .get("max_width")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32)
-        .or(Some(640));
+    let max_width = crate::mcp::parse_max_width(step, 640)?;
     let port = crate::mcp::require_online_pub(project)?;
     let res = bridge_client::bridge_invoke(port, "lua.find_ui", json!({ "q": q }), 10_000)?;
     let item = res
         .get("items")
         .and_then(|a| a.get(0))
         .ok_or_else(|| anyhow!("capture_ui 未命中：'{q}'（先 find_ui 确认文本/id）"))?;
+    let candidates = res.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
     let g = |r: &Value, k: &str| r.get(k).and_then(|v| v.as_f64());
     let rect = item
         .get("rect")
@@ -153,7 +153,16 @@ fn step_capture_ui(project: &std::path::Path, step: &Value) -> Result<Value> {
         })
         .ok_or_else(|| anyhow!("capture_ui 命中项无 rect（不可见？）：'{q}'"))?;
     let crop = Some((rect.0 - pad, rect.1 - pad, rect.2 + pad * 2.0, rect.3 + pad * 2.0));
-    capture::capture_game_mcp(project, 1.0, crop, max_width)
+    let mut out = capture::capture_game_mcp(project, 1.0, crop, max_width)?;
+    if candidates > 1 {
+        // 多命中取第一条属「静默默认」——显式回显候选数防误判（0.8.3 防呆纪律）
+        out["candidates"] = json!(candidates);
+        let prev = out.get("note").and_then(|v| v.as_str()).unwrap_or("");
+        out["note"] = json!(format!(
+            "q 多命中 {candidates} 个候选，已取第一个（不是目标请缩小 q）{prev}"
+        ));
+    }
+    Ok(out)
 }
 
 pub fn run_scenario(args: &Value) -> Result<Value> {
@@ -215,11 +224,7 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                         _ => None,
                     }
                 });
-                let max_width = step
-                    .get("max_width")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u32)
-                    .or(Some(1280));
+                let max_width = crate::mcp::parse_max_width(&step, 1280)?;
                 capture::capture_game_mcp(&project, ratio, crop, max_width)
             }
             "capture_ui" => step_capture_ui(&project, &step),
@@ -254,23 +259,38 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                 let port = crate::mcp::require_online_pub(&project)?;
                 let start = std::time::Instant::now();
                 loop {
-                    let res = bridge_client::bridge_invoke(
-                        port,
-                        "lua.find_ui",
-                        json!({ "q": q }),
-                        10_000,
-                    )?;
-                    let total = res.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
-                    let found = total > 0;
-                    if found == present {
-                        break Ok(json!({ "q": q, "present": present, "total": total,
-                            "elapsed_ms": start.elapsed().as_millis() }));
-                    }
-                    if op == "assert_text" || start.elapsed().as_millis() as u64 >= timeout {
-                        break Err(anyhow!(
-                            "{op} 失败：'{q}' 期望 present={} 实际 total={}（{}ms）",
-                            present, total, start.elapsed().as_millis()
-                        ));
+                    // 桥暂时不可用/单次超时（PIE 重启窗口期）视为「本轮未命中」继续
+                    // 轮询到 timeout——wait_for 的核心场景正是等界面在重启后出现；
+                    // assert_text 无轮询语义，桥错误直接上抛
+                    match bridge_client::bridge_invoke(port, "lua.find_ui", json!({ "q": q }), 10_000)
+                    {
+                        Ok(res) => {
+                            let total = res.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let found = total > 0;
+                            if found == present {
+                                break Ok(json!({ "q": q, "present": present, "total": total,
+                                    "elapsed_ms": start.elapsed().as_millis() }));
+                            }
+                            if op == "assert_text" || start.elapsed().as_millis() as u64 >= timeout
+                            {
+                                break Err(anyhow!(
+                                    "{op} 失败：'{q}' 期望 present={} 实际 total={}（{}ms）",
+                                    present, total, start.elapsed().as_millis()
+                                ));
+                            }
+                        }
+                        Err(e) => {
+                            if op == "assert_text" {
+                                break Err(e);
+                            }
+                            if start.elapsed().as_millis() as u64 >= timeout {
+                                break Err(anyhow!(
+                                    "wait_for 失败：'{q}' 期望 present={}，轮询期间桥调用持续失败（{}ms；最后错误：{e:#}）",
+                                    present,
+                                    start.elapsed().as_millis()
+                                ));
+                            }
+                        }
                     }
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
@@ -361,6 +381,28 @@ mod tests {
         let vars: Vars = Vars::new();
         assert!(subst_vars(&json!("{$missing}"), &vars).is_err());
         assert!(subst_vars(&json!("嵌套 {$missing} 引用"), &vars).is_err());
+    }
+
+    /// 变量值本身含 {$ 模式不得二次展开/误报（替换后从插入值之后继续扫）
+    #[test]
+    fn test_subst_vars_value_with_placeholder_pattern() {
+        let mut vars: Vars = Vars::new();
+        vars.insert("txt".to_string(), json!("字面 {$not_a_var} 文本"));
+        let v = subst_vars(&json!({ "q": "前缀{$txt}后缀" }), &vars).unwrap();
+        assert_eq!(v["q"], json!("前缀字面 {$not_a_var} 文本后缀"));
+    }
+
+    #[test]
+    fn test_parse_max_width_zero_rejected() {
+        assert!(crate::mcp::parse_max_width(&json!({ "max_width": 0 }), 640).is_err());
+        assert_eq!(
+            crate::mcp::parse_max_width(&json!({}), 640).unwrap(),
+            Some(640)
+        );
+        assert_eq!(
+            crate::mcp::parse_max_width(&json!({ "max_width": 2000 }), 640).unwrap(),
+            Some(2000)
+        );
     }
 
     #[test]

@@ -140,6 +140,7 @@ fn tool_capture_game(args: &Value) -> Result<Value> {
     // q = 控件文本/id 子串：find_ui 定位后按其 rect 局部截图（pad 可选，缺省 8）。
     // 人体工学关键路径：看单个 UI 直接带 q，不截全图（0.8.3 用户实测反馈定稿）
     let q = args.get("q").and_then(|v| v.as_str());
+    let mut candidates: u64 = 0;
     let crop = match (args.get("crop"), q) {
         (Some(c), _) => {
             let g = |k: &str| c.get(k).and_then(|v| v.as_f64());
@@ -168,17 +169,38 @@ fn tool_capture_game(args: &Value) -> Result<Value> {
                 })
                 .ok_or_else(|| anyhow!("q 命中项无 rect（不可见？）：'{q}'"))?;
             let pad = args.get("pad").and_then(|v| v.as_f64()).unwrap_or(8.0);
+            candidates = res.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
             Some((rect.0 - pad, rect.1 - pad, rect.2 + pad * 2.0, rect.3 + pad * 2.0))
         }
         _ => None,
     };
     // max_width 缺省 1280（上下文防爆），与 ratio 同时给出时为最终上限
-    let max_width = args
-        .get("max_width")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as u32)
-        .or(Some(1280));
-    capture::capture_game_mcp(&project, ratio, crop, max_width)
+    let max_width = parse_max_width(args, 1280)?;
+    let mut out = capture::capture_game_mcp(&project, ratio, crop, max_width)?;
+    if candidates > 1 {
+        // 多命中取第一条属「静默默认」——显式回显候选数防误判（0.8.3 防呆纪律）
+        out["candidates"] = json!(candidates);
+        let prev = out.get("note").and_then(|v| v.as_str()).unwrap_or("");
+        out["note"] = json!(format!(
+            "q 多命中 {candidates} 个候选，已取第一个（不是目标请缩小 q 或 find_ui 拿 id 后 crop）{prev}"
+        ));
+    }
+    Ok(out)
+}
+
+/// max_width 解析：缺省给 default；显式 0 拒绝（Some(0) 会绕过缺省兜底，
+/// 在 capture 层静默失效为「不限制」，违背降采样护栏的可见性纪律）。
+pub fn parse_max_width(args: &Value, default: u32) -> Result<Option<u32>> {
+    match args.get("max_width").and_then(|v| v.as_u64()) {
+        Some(0) => Err(anyhow!(
+            "max_width 必须 >= 1（0 会静默绕过降采样护栏；缺省 {default}，要原图请显式给大值）"
+        )),
+        Some(v) if v > 100_000 => Err(anyhow!(
+            "max_width 超出合理上限 100000（防 u32 截断静默绕过护栏）"
+        )),
+        Some(v) => Ok(Some(v as u32)),
+        None => Ok(Some(default)),
+    }
 }
 
 // ---------------------------------------------------------------- 桥 Gateway 元工具透传

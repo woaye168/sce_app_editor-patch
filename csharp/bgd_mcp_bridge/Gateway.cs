@@ -145,7 +145,7 @@ public sealed class Gateway
             return OpResult.Fail("UNSUPPORTED", $"能力不可开放: {id}（{entry.UnsupportedReason ?? "签名不适于 JSON 调用"}）");
         }
 
-        // 安全分级：danger 默认拒绝，需配置文件显式放行
+        // 安全分级：danger 默认放行（0.8.0 起，排障刚需）；config.json danger_deny 可显式拒绝
         var risk = _catalog.EffectiveRisk(entry);
         if (risk == "danger" && IsDangerDenied(id))
         {

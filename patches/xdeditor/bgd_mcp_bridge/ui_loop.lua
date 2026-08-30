@@ -158,10 +158,9 @@ function M.setup(ctx)
     handlers.key_down = passthrough('key_down')           -- 键盘按下（不调 key_up 则保持）
     handlers.key_up = passthrough('key_up')               -- 键盘松开
 
-    -- 游戏侧 eval 逃生舱（StateGame VM 内 pcall 任意 Lua；danger 级，与编辑器侧 run_lua 同级）
-    handlers.eval = function(params, id)
-        return vm_call('eval', { code = type(params) == 'table' and params.code or nil }, id)
-    end
+    -- 游戏侧 eval 逃生舱（StateGame VM 内 pcall 任意 Lua；danger 级，与编辑器侧 run_lua 同级。
+    -- 同走全参透传：参数校验是游戏侧 eval 命令自己的职责，白名单曾静默吞参数的教训见上）
+    handlers.eval = passthrough('eval')
 
     return handlers
 end

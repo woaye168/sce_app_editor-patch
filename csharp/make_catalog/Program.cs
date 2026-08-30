@@ -120,8 +120,9 @@ var capabilities = new List<JsonObject>();
 // 注意：只收引擎级单例；AddMapScoped（IDataCore）走 datacore.* 手写封装；瞬态窗口/VM 无外部调用价值。
 (string Type, string Assembly)[] svcServices =
 [
-    // 0.8.0 起剔除 SCE.CppInterface.FileSystem：文件读删/复制/改时间等 AI 用自身工具即可完成，
-    // 不需要 MCP 通道（减少搜索噪音）
+    // 0.8.0 起从 svc 清单剔除 SCE.CppInterface.FileSystem：文件读删/复制/改时间等 AI 用自身
+    // 工具即可完成，不需要 MCP 通道（减少搜索噪音）。注：下方 cpp.* 静态方法全量扫描仍会发出
+    // 4 条 cpp.FileSystem.GetXxxDir 只读目录 getter——无写能力、噪音可忽略，有意保留。
     ("SCE.CppInterface.EditorSettingsManager", "sce"),
     ("SCE.CppInterface.SceneManager", "sce"),
     ("SCE.CppInterface.PluginsManager", "sce"),
@@ -360,7 +361,7 @@ static class CatalogGenerator
         yield return Entry("lua.set_suppress", "lua", "set_suppress", "object", "write",
             [Param("enabled", "bool", true, null, "弹窗抑制开关")]);
         yield return Entry("lua.run_lua", "lua", "run_lua", "object", "danger",
-            [Param("code", "string", true, null, "任意 Lua 代码（pcall 执行，兜底逃生舱；默认 danger 需配置放行）")]);
+            [Param("code", "string", true, null, "任意 Lua 代码（pcall 执行，兜底逃生舱；danger 级默认放行，可用 config.json danger_deny 显式拒绝）")]);
         yield return Entry("lua.publish_project", "lua", "publish_project", "object", "danger",
             []);
         yield return Entry("lua.capture_game", "lua", "capture_game", "object", "read",

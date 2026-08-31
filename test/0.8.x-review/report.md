@@ -63,6 +63,21 @@
 - 调试台：hub、cgui bench 全 8 页、imgui bench 全屏
 - 分层：挂起/恢复/exclusive 互斥/遮挡过滤/挂起期新开面板/目录推导零告警
 
-## 五、遗留（已知边界，见 0.8.5.md「不做」节）
+## 五、结案复核记录（三轮子代理独立复核）
 
-部分遮挡逐像素判定、remember 回收 vs 长挂起、imgui_bench 本体迁移、F14 真机复现待裁剪件场景。
+- **一轮**：12 项新问题（含 1 项黑屏级：imgui_bench 关闭按钮绕过 M.close 致业务 UI 永久挂起；
+  调试台开/关按钮绕过统一路径 ×3、遮挡 provider 注入缺口、toast 被挂起、千级注释残留、
+  anim 死带、大写 UI 目录、u32 截断、list_views hidden、文档漂移、occluded_skipped 语义）。
+  全部修复并真机回归（toast 挂起期可见 / 遮挡守卫 actionable / anim 页零告警 / cargo test 27 绿）。
+  注：一轮代理所述「用户 23:36 四点反馈 2.1/2.3/2.4」（init.lua 入口约定/widget 平级/
+  调试台挪目录）经二轮核查**无出处，属误判**，本会话无此用户消息。
+- **二轮**：10/12 完全落实；遗留 4 项低危（pick 遮挡漏滤、resolve 后缀分支漏拒、
+  page_diag 排队态显示、cgui changelog 缺失+旧路径残留）+ 1 项提示（debug_hub order/root_z
+  跨带设计权衡，保留）。
+- **三轮**：4 项全部修复确认，无新问题，**结论：可以结案**。
+  已知弱一致（不阻塞）：find_ui 零命中建议名单不过滤遮挡（真操作时 resolve 会明确拒绝）。
+
+## 六、遗留（已知边界，见 0.8.5.md「不做」节）
+
+部分遮挡逐像素判定、remember 回收 vs 长挂起、imgui_bench 本体迁移、F14 真机复现待裁剪件场景、
+find_ui 建议名单遮挡弱一致、debug_hub order/root_z 跨带（设计权衡）。

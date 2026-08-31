@@ -82,7 +82,7 @@
       "risk": "read"
     },
     "lua.find_ui": {
-      "description": "查询 UI 控件（按 id/显示文本子串模糊匹配，返回逻辑坐标 rect 与可点/可输入/可滚动标记；文本命中叶子时附 clickable_ancestor 可直接点击；kind=click/input/scroll 快速盘点）。UI 调试闭环第一步：find_ui 定位 → lua.tap/lua.pick 一步操作（或 click_ui/input_text 精确操作）→ capture_game(crop) 验证",
+      "description": "查询 UI 控件（按 id/显示文本子串模糊匹配，返回逻辑坐标 rect 与可点/可输入/可滚动标记 + tags；文本命中叶子时附 clickable_ancestor 可直接点击；kind=click/input/scroll 快速盘点；scope=页名前缀精确过滤（0.8.5 Page 架构，id 首段，如 'shop'）；tag=语义标记过滤（string 或 string[] 任一命中））。UI 调试闭环第一步：find_ui 定位 → lua.tap/lua.pick 一步操作（或 click_ui/input_text 精确操作）→ capture_game(crop) 验证",
       "aliases": ["find_ui", "查控件", "找控件", "坐标", "查找", "按钮在哪", "定位"],
       "tags": ["UI", "控件", "调试", "坐标"],
       "risk": "read",

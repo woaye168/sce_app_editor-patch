@@ -370,9 +370,10 @@ static class CatalogGenerator
         yield return Entry("lua.find_ui", "lua", "find_ui", "object",
             "read",
             [
-                Param("q", "string", false, null, "控件名/id/显示文本子串（模糊、不区分大小写，如 \"商店\" / \"entry\"）；与 kind 至少给一个"),
-                Param("kind", "string", false, null, "click=列出全部可点控件 | input=列出全部输入框（不传 q 时用于快速盘点可交互元素）"),
-                Param("scope", "string", false, JsonValue.Create("game"), "game=游戏UI（cgui 快照+base.ui 树，默认）| editor=编辑器 UI（base.ui 持久树）"),
+                Param("q", "string", false, null, "控件名/id/显示文本子串（模糊、不区分大小写，如 \"商店\" / \"entry\"）；与 kind/scope/tag 至少给一个"),
+                Param("kind", "string", false, null, "click=列出全部可点控件 | input=列出全部输入框 | scroll=全部可滚动（不传 q 时用于快速盘点可交互元素）"),
+                Param("scope", "string", false, null, "页名前缀过滤（0.8.5 统一 Page 架构：id 路径首段精确匹配，如 \"shop\" 只查 shop 页控件，比 q 快且无歧义）；特殊值 editor=查编辑器自身 UI（base.ui 持久树）"),
+                Param("tag", "string[]", false, null, "语义检索标记过滤（0.8.5：Widget props.tag 沉淀进快照；string 或 string[]，任一命中即匹配；返回条目附 tags）"),
             ]);
         yield return Entry("lua.click_ui", "lua", "click_ui", "object",
             "write",

@@ -42,3 +42,21 @@ register()  -- menu_bar 已加载则立即生效
 ## 5. 主/子进程区分
 
 `ProcessInfo.is_main_process`（main.lua:124 后可用）；菜单/窗口类补丁只在主进程有意义（register 的 process_type 参数或直接判 ProcessInfo）。
+
+## 6. 挂编辑器事件总线监听（EDITOR.event_register，2026-09-01 实机验证）
+
+`EDITOR.event_register(name, callback)` = `base.event_register(editor_events, ...)`（utils/event.lua:804 → script 库 base/event.lua:319），**多监听安全**。三个实锤坑：
+
+1. **回调首参是 trig 自身**：触发器实例方法调用语义（script 库 base/trigger.lua:57 `mt:__call` → `self:callback(...)`）——签名必须 `function(self, arg1, ...) end`，按直觉少写 self 会静默错位；
+2. **回调返回非 nil 会中断后续监听投递**（base/event.lua:157-159），纯监听型回调必须返回 nil；
+3. **run_lua/load 动态代码里没有 EDITOR/EVENT 全局**（模块 env 隔离）——从已加载模块函数的 `_ENV` upvalue 取：`debug.getupvalue(package.loaded['@xdeditor/ui/menu_bar'].exit_editor, n)` 找 `_ENV`。补丁模块自身代码无此问题。
+
+实战样例（分玩家日志 tee，详见 doc/research/multi-player-debug.md §6）：
+
+```lua
+EDITOR.event_register(EVENT.add_info_list, function(self, module, data)
+    if module ~= 'debug_client_info' then return end  -- 隐式返回 nil，勿返回值
+    local player = data.info_user_info and data.info_user_info.player
+    -- ...
+end)
+```

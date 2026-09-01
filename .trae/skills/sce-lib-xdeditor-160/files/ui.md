@@ -18,6 +18,7 @@
 - 注销：`unregister(name, hide)`（:1126-1132）。
 - 本文件还承担：游戏调试全流程（`_debug_save_as`，:348-752；任务管线 `DebugGame`，:884-936）、地图保存事件 `EVENT.save_map`（:957-975）、退出编辑器 `exit_editor`（:998-1035，其中 `_G.WINDOW_APP_MANAGER:close_all()` :1005）、命令行发布分支 `_G.generate_cmd`（:1228-1260）、打开项目 `include 'Window.project_manager'(open_map)`（:1265，注意大小写）、登录按钮初始化（:3079-3147）、大量 inner argv 专属菜单。
 - 打开的 app 全局：`_G.RESOURCE_STORE_APP`（:2656）、`_G.ART_WORKBENCH_APP`（:2672）、`PROFILER_APP / TEXTURE_VIEWER_APP / TEXTURE_MERGER_APP`（:2924-2933）、`PROJECT_MANAGER`（:1269）。
+- **模拟多人调试段**（2026-09-01 实机实证，全文 doc/research/multi-player-debug.md）：菜单「调试/模拟多人调试」（:1806-1819）只激活 C# 对话框 MutiDebugWindow；对话框确认 = `SendEvent('CS_muti_debug', json)` → :1752 处理器（数编三键 Game.player_setting/opened_slots/user_ids 校验 + 补 UserId/SlotID + 填 debug_user_info）→ `debug_save_as{muti_debug_info=t, use_muti_debug=true}`（:1803）。槽位 = `GamePlayInEditor1..4`（:1799，单人 = 无序号）；逐槽 register_plugin_ui + show_game_in_editor（:675-693，Delay>0 走 base.wait 错峰）。「使用上次配置」两菜单被 `argv.has('inner')` 门控（:2106-2123）且 last_multi_debug_info 纯内存（:873）。**编程直调路径（已 spike 验证）**：`require('ui.menu_bar').debug_save_as{...}`（导出 :3163-3164），动态代码里须用 `package.loaded['@xdeditor/ui/menu_bar']` 绝对键（load 上下文 require 会落到 @common 包）。tab 三事件：关闭毁局计数（:644-653）/ 暂停 disconnect/reconnect（:656-664）/ 切换仅 set_game_ui_focus（:668-671）。
 
 ### 主视图（ui/main_view.lua）
 
@@ -165,12 +166,13 @@
 - 用途：编辑器内运行游戏（PIE）的插件 UI 视图工厂。
 - 导出：`function(id, debug_user_info)`（:840）——menu_bar.lua:676/718 `pluginMgr:register_plugin_ui(slot_id, gameplay_in_editor_view(...))` 佐证。
 - 依赖：`@appui`（:1）、`SCE.GetPluginsManager()/GetSceneManager()`（:4-5）、`plugin.tile_editor.ui_resolution_content`（:6）、`ui.components.message_window`（:7）、`plugin.obj_editor_v2.const`（:9）。
-- 补丁相关：无。
+- 补丁相关：**多人调试实证（2026-09-01）**：视口控件 name = 传入 id（:105-117），base.ui.map 键 = 窗口根 `GamePlayInEditor<N>` + 视口控件 `ui-<n>-GamePlayInEditor<N>`；tab 标题 `玩家 N 视图`/图标着色由 debug_user_info 驱动（:123-131）；多视口 get_screen_rect 同值（同 dock 叠放），无可见性 getter，分客户端截图须先 `_G.ui.switch_page(slot)` + `sceneMgr:set_game_ui_focus(slot)` 切前台（**切焦后 ~45ms 即合成完成**，像素采样实测）；暂停 = disconnect_game_in_editor（VM 停止应答 dbg 广播），切 tab 不自动 reconnect，**暂停态无官方查询**（sceneMgr 全方法仅 hide/show/disconnect/reconnect/set_game_ui_focus/is_scene_focus）。**离场重进坑（2026-09-02 两轮实测）**：hide_game_in_editor 即销毁 C++ 侧槽位会话（服务端真离场），再 show_game_in_editor 会挤掉在局玩家并只重建单客户端会话——局内加人/重进不可行。
 
 ## ui/foot.lua
 - 用途：底部状态栏（仅 inner argv 显示，main_view.lua:197-201）。
 - 导出：表（:94）。
 - 依赖：`config.localizatioin.ui`（:1）、`config.ui.style`（:2）、`@common.base.argv`（:3）。
+- 实证（2026-09-02）：左下角 `[Connected/Disconnect] <本机IP>:6251` 指示器 = **手机真机调试服务**状态（菜单「调试/手机调试」→ `DebugManager:phone_debug()`，menu_bar.lua:2399-2412；6251 为写死端口）。状态源 = init 时 `DebugManager:server_is_active()` + 引擎事件 `connect_state_changed` 切换（foot.lua:66-91，仅 inner 版点亮 foot_info_show）。地址部分 = `common.get_local_ip()`——给用户看「手机应连的地址」；显示 0.0.0.0 = 未取到有效本机 IP（多网卡/VPN/无活跃网卡兜底）。**与调试 host（游戏服务端）无关**：6251 是编辑器=服务端、手机=客户端连入的真机调试通道。
 - 补丁相关：无。
 
 ## ui/editor_world_ui.lua

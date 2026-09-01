@@ -183,7 +183,7 @@
       "example": "{\"id\":\"lua.pick\",\"args\":{\"q\":\"画质\",\"item\":\"高\"}}"
     },
     "lua.key_down": {
-      "description": "键盘按下（引擎按键事件转发，与真实物理按键同分发；按住 = down 后不 up）",
+      "description": "键盘按下（引擎按键事件转发，触发「按键-按下」事件分发——Y/U 类事件开关有效；但**不置引擎 key_state 轮询态**，WASD 这类每帧轮询 key_state 的移动不吃这套——驱动位移用 press_ui 摇杆持续输入）",
       "aliases": ["key_down", "按键", "按下键盘", "按住键"],
       "tags": ["键盘", "输入", "调试"],
       "risk": "write",
@@ -197,7 +197,7 @@
       "precondition": "调试进行中"
     },
     "lua.eval": {
-      "description": "游戏 VM（StateGame）逃生舱：pcall 执行任意 Lua 代码（游戏侧调试/探测用；编辑器 VM 用 lua.run_lua；danger 级默认放行，调用进审计日志）",
+      "description": "游戏 VM（StateGame）逃生舱：pcall 执行任意 Lua 代码。eval 代码与游戏源码逐字一致——require('libs.xxx'/'src.xxx') 与 res 资源字面量（'src/res/image/a.png' 等）直写即可，dbg_bus 按 bgd_sce_tools 构建盖戳的 _G.bgd_path_rules 自动翻译成运行时形态（盖戳缺失会响亮报错提示重新构建；'@__MAIN_MAP__' 占位符不存在，勿用）；bgd_api.* 全局表直接可用。编辑器 VM 用 lua.run_lua；danger 级默认放行，调用进审计日志",
       "aliases": ["eval", "游戏侧eval", "游戏内执行", "dbg_eval"],
       "tags": ["lua", "逃生舱", "游戏侧", "调试"],
       "risk": "danger",

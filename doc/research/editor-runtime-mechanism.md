@@ -227,7 +227,7 @@ D:\sce_online\星火编辑器.exe -inner -winui_material_editor -winui_resource_
 ### 5.3 脱机调试的特殊点
 
 - 无头调试依赖云端 assign_host（9007 端口签名 POST）——凭证有效即可，无需 GUI。
-- `_G.__fortest_still_use_local_host` 后门只在 map_starter 流程里（headless 调试可用本地 host 5003，如果本地有 host 服务的话）。
+- `_G.__fortest_still_use_local_host` 后门只在 map_starter 流程里（headless 调试可用本地 host 5003——mini-runtime 0.4.0 起有现成对端：`host start` / `debug start --host local` 中继，KCP 会话端口 = 5003+50 需双端口监听）。
 - 无头调试 map_starter 跑完 `os.exit(0)`——**调试局的生命周期与编辑器进程解耦**（游戏由 host/独立进程承载），具体进程形态待实测。
 - headless 模式下弹窗风险：map_starter 的地图完整性检查失败会弹 message_window 等人点（map_starter/init.lua:179-189）——脱机工具要监控超时并杀进程兜底。
 

@@ -13,7 +13,7 @@
 { "mcpServers": { "bgd-sce": { "command": "<bgd_sce_tools安装目录>/apps/editor-patch/sce_app_editor-patch.exe", "args": ["mcp"] } } }
 ```
 
-聚合服务恒定 14 工具（静态列表）：`editor_start` / `editor_stop` / `get_logs` / `capture_game`（编辑器外本地实现，离线可用；capture_game 为真后台截图——编辑器遮挡/最小化均可截，纯游戏画面+游戏 UI，支持 ratio 倍率）+
+聚合服务恒定 15 工具（静态列表）：`editor_start` / `editor_stop` / `get_game_logs` / `capture_game` / `run_scenario`（编辑器外本地实现，离线可用；capture_game 为真后台截图——编辑器遮挡/最小化均可截，纯游戏画面+游戏 UI，支持 crop 游戏逻辑坐标裁剪 + max_width）+
 `start_debug`（默认 restart_last_debug，失败自动回退全量）/ `stop_debug` / `publish_project` / `get_status`（在线透传本桥，离线时明确报错引导 editor_start）+
 `search_capabilities` / `describe_capability` / `invoke_capability` / `list_namespaces` / `get_events` / `set_suppress`（0.7.2 起在线透传本桥 Gateway 元工具——stdio-only 客户端（如 Trae）无需 HTTP 转发壳即可触达能力目录全量能力；离线同样报错引导 editor_start）。
 `project_path` 参数缺省取应用最近项目（GUI 选过项目即记住）。本指南下文为编辑器进程内桥的直接接入方式（场景二/自定义集成用）。

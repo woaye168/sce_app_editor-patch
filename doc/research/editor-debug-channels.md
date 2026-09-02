@@ -97,9 +97,14 @@ EditorLogin(token='qwert') → 桩回 0xF001 result=0
   312 文件 5.9 秒传完）。与 mini-runtime 文档「编辑器流水发送不等 ack」的
   记录相反——**本地连接（127.0.0.1）实测是逐文件等 ack 的**，云端高延迟下的
   行为可能不同，此差异需后续核实修正 scegame-reverse.md。
-- **客户端侧边界**：PIE 客户端会以 `-host_ip=127.0.0.1 -host_port=5003` 尝试
-  KCP 连 host 进局——桩不实现游戏会话则客户端进不了局（客户端日志 0 字节实证）。
-  要完整可玩还需实现 KCP 游戏协议（mini-runtime 的方向，工作量大）。
+- **客户端侧边界（2026-09-02 深夜更新：已被 mini-runtime 中继打通）**：PIE 客户端以
+  `-host_ip=127.0.0.1 -host_port=5003` 进局时，**KCP 会话端口 = 控制端口 + 50
+  （引擎硬编码，实际 dial 5053）**——桩只监听 5003 所以进不了局（lua-game 0 字节
+  实证的真正原因）。mini-runtime local_host.rs 中继（TCP 控制面协议感知转发 +
+  UDP 5003/5053 双端口 KCP NAT 到云端）已端到端验证：本菜单 → 中继 → 云端 →
+  PIE 真实进局。KCP 会话协议已破解（CE1 握手族/标准 KCP/3B 流分帧/c2h 明文
+  protobuf+cmsg_pack/h2c=ZCompress 压缩无加密），详见 mini-runtime
+  doc/research/scegame-reverse.md §13 与 self-host.md。
 - **价值**：编辑器侧全链（登录/上传/起局/停局/心跳）可完全脱云自测；
   多人调试的 host 行为研究、上传协议排障、离线环境开发都有用。
   排障速查：编辑器只在「拷贝地图 + debug_game 上报失败」时经
@@ -162,14 +167,10 @@ add_blocked_time_callback 卡顿统计；⑤ preload 自动加载 glue。
 | --- | --- | --- | --- |
 | 控制台 TCP | EditorLogin/上传/起局/日志/心跳/销毁 | **已完成**（host_stub.rs 实证） | 小（已做） |
 | 载荷管理 | staging 生成、依赖库按 api_pak_version 注册表落位、增量缓存 | mini-runtime 已有（staging.rs/payload.rs，B 模式全链自托管已跑通） | 中（已有） |
-| 游戏会话 KCP | 客户端进局握手、玩家会话、帧同步/状态同步、心跳保活 | 未实现（KCP 协议未逆向，lua-game 日志 0 字节实证客户端进不了局） | **大（核心壁垒）** |
-| 服务端运行时 | 跑服务端 lua 的引擎（sceengine server 模式） | 理论可复用本机 `version-<api>/SCE` 壳以 server 形态启动（同 wineditor 引擎），未验证 | 中 |
+| 游戏会话 KCP | 客户端进局握手、玩家会话、帧同步/状态同步、心跳保活 | **协议已破解 + 中继转发已上线**（2026-09-02：CE1 握手/KCP/3B 流分帧/c2h 明文/h2c ZCompress；local_host 中继双链路进局实证） | 中（自研会话面剩 ZCompress 格式复刻） |
+| 服务端运行时 | 跑服务端 lua 的引擎（sceengine server 模式） | ~~理论可复用本机 SCE 壳~~ **已证伪**（2026-09-02 self-host.md §3/§6：客户端引擎无 GamePlayServer，debug_via_remote=0 实验无 host.exe 可拉）；对自研逻辑项目可用 GameHost.lua 复刻 + 薄 native shim 替代（self-host.md §8 B+ 路线） | 中-大 |
 
-**判断**：能演变成完整服务端，但核心工作量在 KCP 游戏会话协议逆向
-（mini-runtime 已具备 frida_capture/entrance_sniff 工具链与入口）+
-服务端引擎宿主化。**现实路径**：mini-runtime B 模式已经是「云端 host +
-本地 staging + 本地客户端」的脱机闭环；「本地 host」是这条链的最后一块，
-值得立为 mini-runtime 独立版本目标，与 0.8.7 无关。
+**判断（2026-09-02 深夜更新）**：mini-runtime 已交付「中继 host」（0.4.0）——编辑器侧控制面 + KCP 会话面双链路实证可玩（§2）。KCP 协议已破解，剩余壁垒从「协议逆向」缩小为「ZCompress 压缩格式复刻 + GameHost.lua 编排复刻 +（自研逻辑项目）薄 native shim」；通用服务端引擎本体不可得（客户端引擎无 server 半身，已证伪复用 SCE 壳的猜想）。详见 mini-runtime doc/research/self-host.md（§8 架构 A/B/B+/C）。
 
 ### 4.3 手机调试还原（lib_lobby 线索已证伪 + 官方链路已还原）
 
@@ -207,7 +208,8 @@ EditorStartGame 起局 → 手机作为 game client 走 GamePlayOnline 进
 ├─ PIE 调试（默认）：assign_host 分配云端 host → N 个 PIE 客户端 KCP 进局
 │   └─ 叠加 lua_debug='server;game' → host VM 15635 监听 + 客户端回连 VSCode 扩展
 ├─ 调试(本地服务器)：跳过分配，直连 127.0.0.1:5003（官方 host.exe 不随正式版分发；
-│   自建桩已实证编辑器侧全链可行，游戏会话层需另实现 KCP）
+│   mini-runtime 0.4.0 中继 host 已打通全链：控制面转发 + KCP（5053=5003+50）NAT 到云端，
+│   PIE 真实进局；纯本地服务端仍需 GameHost.lua 复刻，见 mini-runtime self-host.md）
 └─ 手机调试：编辑器常驻监听 6251，等同局域网的手机 APP（星火对战平台 tester 壳，
     `-editor_server_debug` 入口见 §4.3）连入，编辑器一次性推图后起局
 ```

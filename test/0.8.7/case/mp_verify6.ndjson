@@ -1,0 +1,4 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"start_debug","arguments":{"players":2,"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"capture_game","arguments":{"q":"背包","player":2,"max_width":320,"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"capture_game","arguments":{"q":"商店","max_width":320,"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"stop_debug","arguments":{"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}

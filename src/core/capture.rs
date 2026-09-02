@@ -23,24 +23,30 @@ use std::time::Duration;
 /// 替代官方「截图后打开所在文件夹」行为——由 CLI 进程自己做，不依赖编辑器 lua 计时器）
 #[cfg(windows)]
 pub fn capture_game_impl(project_root: &Path, ratio: f64, out: Option<&Path>, open_explorer: bool) -> Result<Value> {
-    do_capture(project_root, ratio, out, open_explorer, None, None)
+    do_capture(project_root, ratio, out, open_explorer, None, None, None, true, 200)
 }
 
 /// MCP 工具层专用（0.8.0 R1.2）：视口裁剪后叠加逻辑坐标子矩形裁剪 + max_width 上限，
 /// 护住 AI 上下文。crop = (x, y, w, h) 游戏视口逻辑坐标（原点 (0,0)=视口左上，
 /// 与 lua.get_game_view_rect / find_ui 同系），越界自动 clamp 不报错。
 /// CLI/GUI/pie_capture 拍照路径走 capture_game_impl，不受此影响（用户要原图）。
+/// 0.8.7：player 多人定向——player 给定（或多人局缺省=1 号玩家）时内部编排
+/// mp_switch 切焦 → 等帧（wait_ms）→ WGC → 按 restore 切回原焦点（调用方无感）。
 #[cfg(windows)]
 pub fn capture_game_mcp(
     project_root: &Path,
     ratio: f64,
     crop: Option<(f64, f64, f64, f64)>,
     max_width: Option<u32>,
+    player: Option<i64>,
+    restore: bool,
+    wait_ms: u64,
 ) -> Result<Value> {
-    do_capture(project_root, ratio, None, false, crop, max_width)
+    do_capture(project_root, ratio, None, false, crop, max_width, player, restore, wait_ms)
 }
 
 #[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
 fn do_capture(
     project_root: &Path,
     ratio: f64,
@@ -48,14 +54,70 @@ fn do_capture(
     open_explorer: bool,
     crop: Option<(f64, f64, f64, f64)>,
     max_width: Option<u32>,
+    player: Option<i64>,
+    restore: bool,
+    wait_ms: u64,
 ) -> Result<Value> {
     let target = locate::locate(project_root).map_err(|e| anyhow!(e))?;
     let engine_root = target.engine_root().map_err(|e| anyhow!(e))?;
     let port = bridge_client::online_port(&engine_root)
         .ok_or_else(|| anyhow!("编辑器不在线（MCP 桥不可达）。请先 editor_start 启动编辑器"))?;
 
-    // 1. lua 桥取 PIE 视口逻辑矩形 + 逻辑分辨率
-    let rect = bridge_client::bridge_invoke(port, "lua.get_game_view_rect", json!({}), 15_000)?;
+    // 0. 多人定向（0.8.7）：player 给定 → mp_switch 切焦；未给定但多人局 → 缺省按玩家 1 + hint。
+    //    单人局 mp_switch 回退 switched=false + note 告知（不报错不打扰）。
+    let mut notes: Vec<String> = Vec::new();
+    let mut restore_to: Option<i64> = None;
+    let mut effective_player = player;
+    if effective_player.is_none() {
+        if let Ok(st) = bridge_client::bridge_rpc(port, "get_status", json!({}), 10_000) {
+            if st["clients"].as_array().map(|a| a.len() > 1).unwrap_or(false) {
+                effective_player = Some(1);
+                notes.push("多人局未指定 player，已按玩家 1 截取".to_string());
+            }
+        }
+    }
+    if let Some(p) = effective_player {
+        let sw = bridge_client::bridge_rpc(port, "mp_switch", json!({ "player": p }), 10_000)?;
+        if let Some(n) = sw["note"].as_str().filter(|s| !s.is_empty()) {
+            notes.push(n.to_string());
+        }
+        if sw["paused"].as_bool() == Some(true) {
+            notes.push(format!("玩家 {p} 已暂停，画面为定格最后一帧"));
+        }
+        if sw["switched"].as_bool() == Some(true) {
+            restore_to = sw["previous"].as_i64().filter(|prev| *prev != p);
+            // 等帧：实测切焦后 45ms 即合成完成（multi-player-debug.md §4.2），缺省 200ms 余量充足
+            std::thread::sleep(Duration::from_millis(wait_ms));
+        }
+    }
+    // 焦点还原守护：无论成败截完切回原 tab（restore=false 时跳过，批量连截省切换）
+    struct FocusGuard {
+        port: u16,
+        restore_to: Option<i64>,
+    }
+    impl Drop for FocusGuard {
+        fn drop(&mut self) {
+            if let Some(prev) = self.restore_to.take() {
+                let _ = bridge_client::bridge_rpc(self.port, "mp_switch", json!({ "player": prev }), 10_000);
+            }
+        }
+    }
+    let _focus_guard = FocusGuard {
+        port,
+        restore_to: if restore { restore_to } else { None },
+    };
+
+    // 1. lua 桥取 PIE 视口逻辑矩形 + 逻辑分辨率（多人局定向到目标玩家槽位）
+    let rect_args = match effective_player {
+        Some(p) => json!({ "player": p }),
+        None => json!({}),
+    };
+    let rect = bridge_client::bridge_invoke(port, "lua.get_game_view_rect", rect_args, 15_000)?;
+    if let Some(n) = rect["note"].as_str().filter(|s| !s.is_empty()) {
+        if !notes.iter().any(|x| x == n) {
+            notes.push(n.to_string());
+        }
+    }
     let rx = rect["x"].as_f64().unwrap_or(0.0);
     let ry = rect["y"].as_f64().unwrap_or(0.0);
     let rw = rect["width"].as_f64().unwrap_or(0.0);
@@ -109,7 +171,11 @@ fn do_capture(
     // 先换算到编辑器 UI 逻辑坐标（视口 rect 所在空间），再 clamp 到视口范围内（越界不报错）。
     let rect_logical = match crop {
         Some((x, y, w, h)) => {
-            let gi = bridge_client::bridge_invoke(port, "lua.game_info", json!({}), 10_000)?;
+            let gi_args = match effective_player {
+                Some(p) => json!({ "player": p }),
+                None => json!({}),
+            };
+            let gi = bridge_client::bridge_invoke(port, "lua.game_info", gi_args, 10_000)?;
             let gw = gi["logical_width"].as_f64().unwrap_or(0.0);
             let gh = gi["logical_height"].as_f64().unwrap_or(0.0);
             if gw < 1.0 || gh < 1.0 {
@@ -167,9 +233,17 @@ fn do_capture(
         "ratio": ratio,
         "mode": "game_viewport",
     });
+    if let Some(p) = effective_player {
+        ret["player"] = json!(p);
+    }
+    if !notes.is_empty() {
+        ret["note"] = json!(notes.join("；"));
+    }
     if downscaled {
+        let prev = ret.get("note").and_then(|v| v.as_str()).unwrap_or("");
         ret["note"] = json!(format!(
-            "图片已被 max_width 降采样（{}x{} → {}x{}）：像素级判读（缝隙/对齐/字体）请显式调大 max_width 重截",
+            "{prev}{}图片已被 max_width 降采样（{}x{} → {}x{}）：像素级判读（缝隙/对齐/字体）请显式调大 max_width 重截",
+            if prev.is_empty() { "" } else { "；" },
             nat_w, nat_h, cw, ch
         ));
     }
@@ -188,6 +262,9 @@ pub fn capture_game_mcp(
     _ratio: f64,
     _crop: Option<(f64, f64, f64, f64)>,
     _max_width: Option<u32>,
+    _player: Option<i64>,
+    _restore: bool,
+    _wait_ms: u64,
 ) -> Result<Value> {
     Err(anyhow!("仅支持 Windows"))
 }

@@ -621,6 +621,23 @@ public sealed class McpServer
                     _bridge.SendMenuCommand("调试/再次调试上次调试版本");
                     return await WaitStatusAsync(s => s, StartDebugTimeoutMs, "再次调试启动超时").ConfigureAwait(false);
                 }
+                // ---------------- 0.8.7 多人调试：桥内部通道（exe /rpc 直调，不进能力目录） ----------------
+                case "mp_start":
+                {
+                    // 多人拉起（mp_debug.lua：互斥/预校验/字段补全/直调 debug_save_as/逐槽位轮询全在 Lua 侧自持，
+                    // 失败原因精确返回）。弹窗抑制由 Lua 侧 auto_suppress 负责；轮询在 Lua 内完成，超时对齐 120s。
+                    return await ViaLuaAsync("mp_start", p, StartDebugTimeoutMs + 10000).ConfigureAwait(false);
+                }
+                case "mp_switch":
+                {
+                    // 切焦（capture_game 玩家定向截图的内部编排：切 tab + set_game_ui_focus）
+                    return await ViaLuaAsync("mp_switch", p, 10000).ConfigureAwait(false);
+                }
+                case "mp_logs":
+                {
+                    // 分玩家日志 tee 查询/清空（get_game_logs player 参数的在线数据源）
+                    return await ViaLuaAsync("mp_logs", p, 15000).ConfigureAwait(false);
+                }
                 case "server_info":
                 {
                     return OpResult.Success(new JsonObject

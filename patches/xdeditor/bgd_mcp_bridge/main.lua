@@ -177,6 +177,27 @@ local function list_commands()
     return arr
 end
 
+-- ===== 多人调试适配（0.8.7）：槽位枚举/门禁统一改「任一 GamePlayInEditor* 在线」 =====
+-- 纯多人局无无序号槽位，旧判定恒 false 导致 lua.* 全灭（实测缺口）
+local function slot_loaded(slot_id)
+    local ok, loaded = pcall(function()
+        return pluginMgr and pluginMgr:is_plugin_ui_loaded(slot_id)
+    end)
+    return ok and loaded == true
+end
+
+local function is_any_debugging()
+    if slot_loaded('GamePlayInEditor') then
+        return true
+    end
+    for i = 1, 4 do
+        if slot_loaded('GamePlayInEditor' .. i) then
+            return true
+        end
+    end
+    return false
+end
+
 -- start_debug 自动抑制：开启后等 pie_will_launch 或 60 秒超时自动关闭
 local function auto_suppress_off(gen)
     if suppress_auto and suppress_gen == gen then
@@ -232,6 +253,10 @@ end
 
 local handlers = {}
 
+-- ===== 0.8.7 多人调试：mp_debug 模块引用（mp_start/mp_switch/set_pause/mp_logs + 归属映射），
+-- 在下方 ui_loop 挂载块之前由独立 do 块装配（get_status/get_game_view_rect 引用其状态）
+local mp_debug_mod, mp_ctx
+
 handlers.call_command = function(params)
     if type(params) ~= 'table' or type(params.name) ~= 'string' then
         error('params.name 缺失或非法')
@@ -269,21 +294,19 @@ handlers.run_lua = function(params)
 end
 
 handlers.get_status = function()
-    local map_path, debugging
+    local map_path
     if MainFrame then
         pcall(function()
             map_path = MainFrame:GetMapPath()
         end)
     end
-    if pluginMgr then
-        pcall(function()
-            debugging = pluginMgr:is_plugin_ui_loaded('GamePlayInEditor')
-        end)
-    end
     return {
         map_path = map_path,
-        debugging = debugging and true or false,
+        -- 0.8.7：任一 GamePlayInEditor* 在线即调试中（修复纯多人局 debugging=false）
+        debugging = is_any_debugging(),
         suppress = suppress_enabled,
+        -- 多人调试客户端清单（归属映射 + 同步槽位枚举；单人局 = 单条 player=1；未调试 = 空数组）
+        clients = mp_debug_mod and mp_debug_mod.clients(mp_ctx) or {},
     }
 end
 
@@ -338,20 +361,40 @@ end
 
 -- 获取 PIE 游戏视口在编辑器窗口中的矩形（0.5.3 修订版截图方案的 lua 环节）。
 -- 返回引擎 UI 逻辑坐标矩形 + 逻辑分辨率；外部（bgd_sce_tools WGC 截窗）按比例换算物理裁剪框。
--- 原理：PIE 视口是 base.ui 控件树里的 viewport 控件（ui-<n>-GamePlayInEditor），
+-- 原理：PIE 视口是 base.ui 控件树里的 viewport 控件（ui-<n>-GamePlayInEditor[序号]），
 -- 控件元表自带 get_screen_rect()（编辑器主区 main rect=(0,0,逻辑宽,逻辑高)）。
-handlers.get_game_view_rect = function()
+-- 0.8.7：正则放开序号后缀（多人局 ui-<n>-GamePlayInEditor1..4）；params.player 选玩家
+--（经归属映射反查槽位；缺省 = 多人局 1 号玩家/单人局唯一玩家；单人局带 player 回退 + note）。
+-- 纯读（read 级无副作用）——切焦由 mp_switch 负责，不在此做。
+handlers.get_game_view_rect = function(params)
     if not (base and base.ui and base.ui.map) then
         error('base.ui 不可用')
     end
+    -- player → 槽位序号后缀（nil = 单人无序号槽位）
+    local want_suffix, note, player = '', nil, nil
+    if mp_debug_mod then
+        local slot_id, n, err, p = mp_debug_mod.slot_for_player(mp_ctx,
+            type(params) == 'table' and params.player or nil)
+        if err then
+            error(err)
+        end
+        note = n
+        player = p
+        if slot_id then
+            want_suffix = slot_id:match('^GamePlayInEditor(%d+)$') or ''
+        end
+    end
     local ui
     for k, v in pairs(base.ui.map) do
-        if tostring(k):match('^ui%-%d+%-GamePlayInEditor$') then
+        if tostring(k):match('^ui%-%d+%-GamePlayInEditor' .. want_suffix .. '$') then
             ui = v
             break
         end
     end
     if not ui or type(ui.get_screen_rect) ~= 'function' then
+        if player then
+            error(('玩家 %d 的游戏视口控件不存在（客户端未上线？get_status 可查 clients）'):format(player))
+        end
         error('游戏视口控件不存在（游戏未在调试？）')
     end
     local ok, x, y, w, h = pcall(function()
@@ -367,7 +410,14 @@ handlers.get_game_view_rect = function()
     if not lw or not lh then
         error('无法获取编辑器 UI 逻辑分辨率')
     end
-    return { x = x, y = y, width = w, height = h, logical_width = lw, logical_height = lh }
+    local ret = { x = x, y = y, width = w, height = h, logical_width = lw, logical_height = lh }
+    if player then
+        ret.player = player
+    end
+    if note then
+        ret.note = note
+    end
+    return ret
 end
 
 -- 截取游戏画面（R2 定稿：引擎原生 snapshot_scene_callback，PIE 截图按钮官方实现）
@@ -411,6 +461,42 @@ handlers.capture_game = function(params, id)
     return DEFERRED
 end
 
+-- ===== 0.8.7 多人调试适配（mp_debug.lua：mp_start/mp_switch/set_pause/mp_logs + 归属映射） =====
+-- 必须先于 ui_loop 装配：ui_loop 的定向寻址（dbg_target）与 get_status/get_game_view_rect 都引用其状态
+do
+    local ok, mp = pcall(require, 'sce_app_editor-patch.bgd_mcp_bridge.mp_debug')
+    if ok and type(mp) == 'table' and type(mp.setup) == 'function' then
+        mp_debug_mod = mp
+        mp_ctx = {
+            send_ack = send_ack,
+            deferred = DEFERRED,
+            logi = logi,
+            get_plugin_mgr = function()
+                return pluginMgr
+            end,
+            get_scene_mgr = function()
+                return sceneMgr
+            end,
+            get_main_frame = function()
+                return MainFrame
+            end,
+            get_menu_bar = function()
+                return window_title_bar
+            end,
+            auto_suppress = auto_suppress_on,
+        }
+        local h = mp.setup(mp_ctx)
+        if type(h) == 'table' then
+            for k, v in pairs(h) do
+                handlers[k] = v
+            end
+        end
+        logi('mp_debug 已装配（多人调试适配）')
+    else
+        logi('mp_debug 加载失败，多人调试能力停用: ' .. tostring(mp))
+    end
+end
+
 -- ===== 0.8.0 R2/R3：UI 闭环调试（find_ui/click_ui/input_text/press_ui 等，实现拆在 ui_loop.lua） =====
 do
     local ok, ui_loop = pcall(require, 'sce_app_editor-patch.bgd_mcp_bridge.ui_loop')
@@ -419,12 +505,13 @@ do
             send_ack = send_ack,
             deferred = DEFERRED,
             logi = logi,
-            is_debugging = function()
-                local debugging = false
-                pcall(function()
-                    debugging = pluginMgr and pluginMgr:is_plugin_ui_loaded('GamePlayInEditor')
-                end)
-                return debugging and true or false
+            is_debugging = is_any_debugging,
+            -- 0.8.7 定向寻址：player → dbg target（nil=单人不过滤）；note=单人回退告知；err=玩家不在线
+            dbg_target = function(player)
+                if not mp_debug_mod then
+                    return nil, nil, nil
+                end
+                return mp_debug_mod.resolve_player(mp_ctx, player)
             end,
         })
         if type(h) == 'table' then

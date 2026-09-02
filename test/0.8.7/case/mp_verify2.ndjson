@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"invoke_capability","arguments":{"id":"lua.eval","args":{"code":"return base.local_player():get_slot_id()","player":2},"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"invoke_capability","arguments":{"id":"lua.eval","args":{"code":"return base.local_player():get_slot_id()","player":3},"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}

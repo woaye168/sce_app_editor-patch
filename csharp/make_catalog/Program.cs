@@ -366,7 +366,8 @@ static class CatalogGenerator
             []);
         yield return Entry("lua.capture_game", "lua", "capture_game", "object", "read",
             [Param("path", "string", false, null, "png 落盘绝对路径（缺省自动生成到 用户目录/screenShot/）")]);
-        yield return Entry("lua.get_game_view_rect", "lua", "get_game_view_rect", "object", "read", []);
+        yield return Entry("lua.get_game_view_rect", "lua", "get_game_view_rect", "object", "read",
+            [PlayerParam()]);
         yield return Entry("lua.find_ui", "lua", "find_ui", "object",
             "read",
             [
@@ -374,6 +375,7 @@ static class CatalogGenerator
                 Param("kind", "string", false, null, "click=列出全部可点控件 | input=列出全部输入框 | scroll=全部可滚动（不传 q 时用于快速盘点可交互元素）"),
                 Param("scope", "string", false, null, "页名前缀过滤（0.8.5 统一 Page 架构：id 路径首段精确匹配，如 \"shop\" 只查 shop 页控件，比 q 快且无歧义）；特殊值 editor=查编辑器自身 UI（base.ui 持久树）"),
                 Param("tag", "string[]", false, null, "语义检索标记过滤（0.8.5：Widget props.tag 沉淀进快照；string 或 string[]，任一命中即匹配；返回条目附 tags）"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.click_ui", "lua", "click_ui", "object",
             "write",
@@ -381,38 +383,42 @@ static class CatalogGenerator
                 Param("id", "string", true, null, "find_ui 返回的控件 id（支持末段简写；仅 clickable=true 的 cgui 控件可点；浮层项等易失效 id 建议改用 lua.tap/lua.pick）"),
                 Param("expect", "string", false, null, "操作后验证：延迟数帧断言该文本已出现（注入成功≠业务生效，建议关键操作带上）"),
                 Param("expect_absent", "string", false, null, "操作后验证：断言该文本已消失（如关面板）"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.click_at", "lua", "click_at", "object",
             "write",
             [
                 Param("x", "number", true, null, "游戏视口逻辑坐标 x（与 find_ui rect / capture_game crop 同系）"),
                 Param("y", "number", true, null, "游戏视口逻辑坐标 y"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.input_text", "lua", "input_text", "object",
             "write",
             [
                 Param("id", "string", true, null, "输入框控件 id（find_ui inputable=true 的）"),
                 Param("text", "string", true, null, "完整文本（等价人工输入，直接触发 on_input）"),
+                PlayerParam(),
             ]);
-        yield return Entry("lua.game_info", "lua", "game_info", "object", "read", []);
+        yield return Entry("lua.game_info", "lua", "game_info", "object", "read", [PlayerParam()]);
         yield return Entry("lua.press_ui", "lua", "press_ui", "object",
             "write",
             [
                 Param("id", "string", true, null, "控件 id（find_ui 返回中 pressable=true 的，如虚拟摇杆）"),
                 Param("x", "number", false, null, "按住方向 x（[-1,1]，摇杆用；缺省 0）"),
                 Param("y", "number", false, null, "按住方向 y（[-1,1]，向下为正；缺省 0）"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.release_ui", "lua", "release_ui", "object",
             "write",
-            [Param("id", "string", true, null, "控件 id（解除 press_ui 的模拟按住）")]);
+            [Param("id", "string", true, null, "控件 id（解除 press_ui 的模拟按住）"), PlayerParam()]);
         yield return Entry("lua.long_press_ui", "lua", "long_press_ui", "object",
             "write",
-            [Param("id", "string", true, null, "控件 id（find_ui 返回中 long_pressable=true 的）")]);
+            [Param("id", "string", true, null, "控件 id（find_ui 返回中 long_pressable=true 的）"), PlayerParam()]);
         yield return Entry("lua.hover_ui", "lua", "hover_ui", "object",
             "write",
-            [Param("id", "string", true, null, "控件 id（真实悬停保持态：虚拟指针驻留，每帧覆写 hover+enter/leave 沿，直到其他虚拟指针命令接管；验证 tooltip/hover 样式配 capture_game crop 判读）")]);
+            [Param("id", "string", true, null, "控件 id（真实悬停保持态：虚拟指针驻留，每帧覆写 hover+enter/leave 沿，直到其他虚拟指针命令接管；验证 tooltip/hover 样式配 capture_game crop 判读）"), PlayerParam()]);
         yield return Entry("lua.eval", "lua", "eval", "object", "danger",
-            [Param("code", "string", true, null, "游戏 VM（StateGame）内 pcall 执行任意 Lua 代码（游戏侧逃生舱，编辑器侧用 lua.run_lua）")]);
+            [Param("code", "string", true, null, "游戏 VM（StateGame）内 pcall 执行任意 Lua 代码（游戏侧逃生舱，编辑器侧用 lua.run_lua）"), PlayerParam()]);
         yield return Entry("lua.drag_ui", "lua", "drag_ui", "object",
             "write",
             [
@@ -420,12 +426,14 @@ static class CatalogGenerator
                 Param("to_id", "string", false, null, "目标控件 id（拖放/排序，落点=目标中心；与 dx/dy 互斥）"),
                 Param("dx", "number", false, null, "相对偏移 x 逻辑 px（摇杆/画布用；与 to_id 互斥）"),
                 Param("dy", "number", false, null, "相对偏移 y 逻辑 px"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.scroll_ui", "lua", "scroll_ui", "object",
             "write",
             [
                 Param("id", "string", true, null, "pscroll 容器 id（find_ui 返回中 scrollable=true 的）"),
                 Param("delta_y", "number", true, null, "滚动增量逻辑 px（正=向下查看更多内容）"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.tap", "lua", "tap", "object",
             "write",
@@ -433,24 +441,35 @@ static class CatalogGenerator
                 Param("q", "string", true, null, "控件名/id/显示文本子串（与 find_ui 同语义）：找文本→跟 clickable_ancestor→点击一步完成，多命中取 id 序第一个"),
                 Param("expect", "string", false, null, "操作后验证：延迟数帧断言该文本已出现（注入成功≠业务生效，开面板类操作建议带上）"),
                 Param("expect_absent", "string", false, null, "操作后验证：断言该文本已消失（如关面板）"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.pick", "lua", "pick", "object",
             "write",
             [
                 Param("q", "string", true, null, "下拉控件定位（id 或当前选中项文本子串）"),
                 Param("item", "string", true, null, "菜单项文本子串（展开+选项一步完成；已展开时幂等）"),
+                PlayerParam(),
             ]);
         yield return Entry("lua.key_down", "lua", "key_down", "object",
             "write",
-            [Param("key", "string", true, null, "键名（如 \"W\"/\"F1\"，常量见 bgd_const.keyboard）：按下（不调 key_up 则保持按住）")]);
+            [Param("key", "string", true, null, "键名（如 \"W\"/\"F1\"，常量见 bgd_const.keyboard）：按下（不调 key_up 则保持按住）"), PlayerParam()]);
         yield return Entry("lua.key_up", "lua", "key_up", "object",
             "write",
-            [Param("key", "string", true, null, "键名：松开")]);
+            [Param("key", "string", true, null, "键名：松开"), PlayerParam()]);
         yield return Entry("lua.set_value", "lua", "set_value", "object",
             "write",
             [
                 Param("id", "string", true, null, "控件 id（find_ui 返回中 settable=true 的 slider）"),
                 Param("value", "number", true, null, "目标数值（on_change+on_commit 一次到位，等价拖到位松手）"),
+                PlayerParam(),
+            ]);
+        // 0.8.7 多人调试同族扩展（lua.* 家族新条目，非新 MCP 工具）：玩家暂停/恢复 =
+        // 断线/重连模拟（官方 tab 暂停按钮同款 disconnect/reconnect_game_in_editor；单人局无此能力报错）
+        yield return Entry("lua.set_pause", "lua", "set_pause", "object",
+            "write",
+            [
+                Param("player", "number", false, null, "目标玩家号（1~4；缺省=多人局 1 号玩家；单人局调用报错「无暂停能力」）"),
+                Param("paused", "bool", true, null, "true=暂停（该客户端断线停 tick，dbg 命令不应答/日志无新行/画面定格）；false=恢复（客户端重新连入）"),
             ]);
         yield return Entry("sys.server_info", "sys", "server_info", "object", "read", []);
     }
@@ -480,4 +499,9 @@ static class CatalogGenerator
         if (desc != null) o["description"] = desc;
         return o;
     }
+
+    /// <summary>0.8.7 多人调试统一可选参数：lua.* 游戏侧命令全员可带（缺省=多人局 1 号玩家/单人局唯一玩家）。</summary>
+    private static JsonObject PlayerParam() =>
+        Param("player", "number", false, null,
+            "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）");
 }

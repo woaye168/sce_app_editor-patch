@@ -203,6 +203,14 @@
       "risk": "danger",
       "precondition": "调试进行中"
     },
+    "lua.set_pause": {
+      "description": "玩家暂停/恢复（0.8.7 多人调试）：paused=true 断开该玩家 PIE 客户端（VM 停 tick：dbg 命令不应答、日志无新行、画面定格最后一帧，host 局不销毁）；paused=false 重连恢复——断线/重连测试场景的唯一手段。官方 tab 暂停按钮同款（disconnect/reconnect_game_in_editor）；编辑器 VM 直调不经 dbg 总线，旧框架也能用",
+      "aliases": ["set_pause", "暂停", "恢复", "断线", "重连", "断线重连"],
+      "tags": ["多人调试", "暂停", "断线", "调试"],
+      "risk": "write",
+      "precondition": "多人调试进行中（start_debug{players=N} 拉起）；单人局调用报错「单人调试槽位无暂停能力」",
+      "example": "{\"id\":\"lua.set_pause\",\"args\":{\"player\":2,\"paused\":true}}"
+    },
     "sys.server_info": {
       "description": "服务自身信息（版本/端口/目录规模/漂移状态）",
       "aliases": ["server_info"],

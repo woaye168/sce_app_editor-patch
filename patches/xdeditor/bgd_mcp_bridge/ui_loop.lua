@@ -3,14 +3,18 @@
 --   long_press_ui / set_value / hover_ui / game_info / eval +
 --   0.8.2 增量（drag_ui / scroll_ui / tap / pick / key_down / key_up）——全部薄转发。
 -- 游戏侧经引擎 lobby 总线直达 StateGame 的 dbg_bus 端点（bgd 框架游戏侧模块）：
---   编辑器 → 游戏：send_luastate_broadcast('bgd_dbg_cmd', { id, cmd, args })
---   游戏 → 编辑器：bgd_dbg_result { id, ok, json, result }（result 为 JSON 字符串或文本）
+--   编辑器 → 游戏：send_luastate_broadcast('bgd_dbg_cmd', { id, cmd, args, target?, proto=2 })
+--   游戏 → 编辑器：bgd_dbg_result { id, ok, json, result, from?, proto? }
+-- 0.8.7 多人寻址：lua.* 全命令加 player 参数（缺省 = 多人局 1 号玩家/单人局唯一玩家；
+-- 单人局带 player 回退 + note 告知）；多人局恒带 target 定向，回执按 from==target 配对，
+-- 收到无 from 的应答 = 对端旧框架 → 响亮报错引导升级（不静默退化）。
 -- 编辑器侧 UI（base.ui 持久树）直接在本 VM 查询（find_ui scope=editor）。
--- 机制底档：doc/research/ui-reflection.md + lua-vm-bus.md
+-- 机制底档：doc/research/ui-reflection.md + lua-vm-bus.md + multi-player-debug.md
 
 local M = {}
 
----注册 UI 闭环 handlers。ctx: { send_ack, deferred, logi, is_debugging }
+---注册 UI 闭环 handlers。ctx: { send_ack, deferred, logi, is_debugging, dbg_target }
+---dbg_target(player) → target(number|nil), note(string|nil), err(string|nil)（0.8.7 多人寻址）
 ---@return table<string, function> handlers（挂到 main.lua 的 handlers 表）
 function M.setup(ctx)
     local send_ack = ctx.send_ack
@@ -24,16 +28,29 @@ function M.setup(ctx)
     local dbg_bus_ready = type(dbg_lobby) == 'table'
         and type(dbg_lobby.send_luastate_broadcast) == 'function'
         and type(dbg_lobby.register_luaState_event) == 'function'
-    local dbg_pending = {} -- 游戏侧请求 id -> 桥请求 id
+    local dbg_pending = {} -- 游戏侧请求 id -> { ack=桥请求id, target=玩家号|nil, note=告知|nil }
     local dbg_next_id = 0
 
     local function dbg_on_result(data)
         if type(data) ~= 'table' or data.id == nil then
             return
         end
-        local ack_id = dbg_pending[tostring(data.id)]
-        if not ack_id then
+        local entry = dbg_pending[tostring(data.id)]
+        if not entry then
             return
+        end
+        -- 0.8.7 定向配对：多人请求只收 from==target 的应答；其他玩家的同 id 应答忽略（继续等）
+        if entry.target ~= nil then
+            if data.from == nil then
+                -- 无 from = 对端旧框架：响亮报错引导升级，不等超时不静默退化
+                dbg_pending[tostring(data.id)] = nil
+                send_ack(entry.ack, false,
+                    '游戏侧框架过旧（dbg 回执无 from 字段，无法多人寻址）：请 bgd_sce_tools update-framework + build 后 restart_last_debug')
+                return
+            end
+            if data.from ~= entry.target then
+                return
+            end
         end
         dbg_pending[tostring(data.id)] = nil
         local payload = data.result
@@ -47,9 +64,13 @@ function M.setup(ctx)
             if type(payload) ~= 'table' then
                 payload = { result = payload }
             end
-            send_ack(ack_id, true, payload)
+            -- 单人局带 player 的回退告知（统一文案模板）
+            if entry.note then
+                payload.note = entry.note
+            end
+            send_ack(entry.ack, true, payload)
         else
-            send_ack(ack_id, false, tostring(payload))
+            send_ack(entry.ack, false, tostring(payload))
         end
     end
 
@@ -61,6 +82,8 @@ function M.setup(ctx)
     end
 
     ---经 lobby 总线调游戏侧 dbg_bus 命令（DEFERRED + 3s 无响应超时兜底）
+    ---0.8.7：args.player 经 ctx.dbg_target 译 target 进 bgd_dbg_cmd（dbg_commands 零改动，
+    ---过滤在 dbg_bus 总线层）；player 字段不随 args 下发（游戏侧无此概念）
     local function vm_call(cmd, args, ack_id)
         if not dbg_bus_ready then
             error('lobby 跨 VM 总线不可用（编辑器上下文 require lobby 失败）')
@@ -68,18 +91,45 @@ function M.setup(ctx)
         if not ctx.is_debugging() then
             error('游戏未在调试，请先 start_debug')
         end
+        local target, note, terr
+        if ctx.dbg_target then
+            target, note, terr = ctx.dbg_target(args.player)
+            if terr then
+                error(terr)
+            end
+        end
+        if args.player ~= nil then
+            -- player 是桥侧寻址参数，不下发给游戏侧 dbg_commands
+            local cleaned = {}
+            for k, v in pairs(args) do
+                if k ~= 'player' then
+                    cleaned[k] = v
+                end
+            end
+            args = cleaned
+        end
         dbg_next_id = dbg_next_id + 1
         local req_id = tostring(dbg_next_id)
-        dbg_pending[req_id] = ack_id
+        dbg_pending[req_id] = { ack = ack_id, target = target, note = note }
         pcall(base.wait, 3000, function()
-            if dbg_pending[req_id] then
+            local pend = dbg_pending[req_id]
+            if pend then
                 dbg_pending[req_id] = nil
-                send_ack(ack_id, false,
-                    '游戏侧无响应（dbg_bus 未就绪？游戏项目需更新框架并重新构建后 restart_last_debug）')
+                -- 超时文案统一含暂停恢复引导（暂停 VM 不应答 dbg 命令，实测）
+                local hint = pend.target
+                    and ('无响应（dbg_bus 未就绪？或目标玩家已暂停——可 lua.set_pause{player='
+                        .. tostring(pend.target) .. ', paused=false} 恢复；或游戏侧框架需更新：update-framework + build + restart_last_debug）')
+                    or '无响应（dbg_bus 未就绪？或目标玩家已暂停——可 lua.set_pause{player=N, paused=false} 恢复；或游戏侧框架需更新：update-framework + build + restart_last_debug）'
+                send_ack(ack_id, false, '游戏侧' .. hint)
             end
         end)
-        local ok, err = pcall(dbg_lobby.send_luastate_broadcast, 'bgd_dbg_cmd',
-            { id = req_id, cmd = cmd, args = args })
+        -- 多人局恒带 target + proto=2；单人局不带 target（协议字节级兼容旧游戏框架）
+        local payload = { id = req_id, cmd = cmd, args = args }
+        if target ~= nil then
+            payload.target = target
+            payload.proto = 2
+        end
+        local ok, err = pcall(dbg_lobby.send_luastate_broadcast, 'bgd_dbg_cmd', payload)
         if not ok then
             dbg_pending[req_id] = nil
             error('lobby 广播失败: ' .. tostring(err))

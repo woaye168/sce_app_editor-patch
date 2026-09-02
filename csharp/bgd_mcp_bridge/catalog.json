@@ -1,6 +1,6 @@
 {
   "engine_version": "13",
-  "generated_at": "2026-08-31 17:50:37",
+  "generated_at": "2026-09-03 03:49:42",
   "capabilities": [
     {
       "id": "svc.EditorSettingsManager.GetObjcetNumberValue",
@@ -4575,7 +4575,14 @@
       "method": "get_game_view_rect",
       "returns": "object",
       "risk": "read",
-      "params": []
+      "params": [
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
+        }
+      ]
     },
     {
       "id": "lua.find_ui",
@@ -4607,6 +4614,12 @@
           "type": "string[]",
           "required": false,
           "description": "语义检索标记过滤（0.8.5：Widget props.tag 沉淀进快照；string 或 string[]，任一命中即匹配；返回条目附 tags）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4634,6 +4647,12 @@
           "type": "string",
           "required": false,
           "description": "操作后验证：断言该文本已消失（如关面板）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4655,6 +4674,12 @@
           "type": "number",
           "required": true,
           "description": "游戏视口逻辑坐标 y"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4676,6 +4701,12 @@
           "type": "string",
           "required": true,
           "description": "完整文本（等价人工输入，直接触发 on_input）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4685,7 +4716,14 @@
       "method": "game_info",
       "returns": "object",
       "risk": "read",
-      "params": []
+      "params": [
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
+        }
+      ]
     },
     {
       "id": "lua.press_ui",
@@ -4711,6 +4749,12 @@
           "type": "number",
           "required": false,
           "description": "按住方向 y（[-1,1]，向下为正；缺省 0）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4726,6 +4770,12 @@
           "type": "string",
           "required": true,
           "description": "控件 id（解除 press_ui 的模拟按住）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4741,6 +4791,12 @@
           "type": "string",
           "required": true,
           "description": "控件 id（find_ui 返回中 long_pressable=true 的）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4756,6 +4812,12 @@
           "type": "string",
           "required": true,
           "description": "控件 id（真实悬停保持态：虚拟指针驻留，每帧覆写 hover+enter/leave 沿，直到其他虚拟指针命令接管；验证 tooltip/hover 样式配 capture_game crop 判读）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4771,6 +4833,12 @@
           "type": "string",
           "required": true,
           "description": "游戏 VM（StateGame）内 pcall 执行任意 Lua 代码（游戏侧逃生舱，编辑器侧用 lua.run_lua）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4804,6 +4872,12 @@
           "type": "number",
           "required": false,
           "description": "相对偏移 y 逻辑 px"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4825,6 +4899,12 @@
           "type": "number",
           "required": true,
           "description": "滚动增量逻辑 px（正=向下查看更多内容）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4852,6 +4932,12 @@
           "type": "string",
           "required": false,
           "description": "操作后验证：断言该文本已消失（如关面板）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4873,6 +4959,12 @@
           "type": "string",
           "required": true,
           "description": "菜单项文本子串（展开+选项一步完成；已展开时幂等）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4888,6 +4980,12 @@
           "type": "string",
           "required": true,
           "description": "键名（如 \"W\"/\"F1\"，常量见 bgd_const.keyboard）：按下（不调 key_up 则保持按住）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4903,6 +5001,12 @@
           "type": "string",
           "required": true,
           "description": "键名：松开"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
         }
       ]
     },
@@ -4924,6 +5028,33 @@
           "type": "number",
           "required": true,
           "description": "目标数值（on_change+on_commit 一次到位，等价拖到位松手）"
+        },
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "多人调试定向玩家号（1~4；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）"
+        }
+      ]
+    },
+    {
+      "id": "lua.set_pause",
+      "executor": "lua",
+      "method": "set_pause",
+      "returns": "object",
+      "risk": "write",
+      "params": [
+        {
+          "name": "player",
+          "type": "number",
+          "required": false,
+          "description": "目标玩家号（1~4；缺省=多人局 1 号玩家；单人局调用报错「无暂停能力」）"
+        },
+        {
+          "name": "paused",
+          "type": "bool",
+          "required": true,
+          "description": "true=暂停（该客户端断线停 tick，dbg 命令不应答/日志无新行/画面定格）；false=恢复（客户端重新连入）"
         }
       ]
     },

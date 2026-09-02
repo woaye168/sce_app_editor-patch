@@ -18,6 +18,10 @@
 //! 显式报错。作用域=单次 run_scenario 调用。
 //!
 //! 默认遇错即停（stop_on_error=false 继续）。每步结果截断 2KB，整体还有 32KB 护栏。
+//!
+//! 多人调试（0.8.7）：场景级 default_player 设步骤缺省玩家号，步骤级 player 覆盖；
+//! 透传到 invoke（lua.*）/capture/capture_ui/logs/wait_for/assert_text；start_debug 步骤
+//! 支持 players（2~4 或 [{player?,delay?}...]）拉起多人局。
 
 use crate::core::{bridge_client, capture, logs};
 use anyhow::{anyhow, Result};
@@ -130,7 +134,8 @@ fn extract_save(result: &Value, save_field: Option<&str>) -> Result<Value> {
 /// capture_ui 步骤：find_ui(q) 拿控件 rect → 按 rect+pad 局部截图。看单个 UI 用此步，
 /// 免「先 find 再手抄坐标 crop」两次往返（全视口截图只在看整体布局时用）。
 /// max_width 缺省 640（响应回显 downscaled/natural_*，像素级判读时显式调大）。
-fn step_capture_ui(project: &std::path::Path, step: &Value) -> Result<Value> {
+/// 0.8.7：player 定向（多人局定位与截图都落到该玩家客户端）
+fn step_capture_ui(project: &std::path::Path, step: &Value, player: Option<i64>) -> Result<Value> {
     let q = step
         .get("q")
         .and_then(|v| v.as_str())
@@ -138,7 +143,11 @@ fn step_capture_ui(project: &std::path::Path, step: &Value) -> Result<Value> {
     let pad = step.get("pad").and_then(|v| v.as_f64()).unwrap_or(8.0);
     let max_width = crate::mcp::parse_max_width(step, 640)?;
     let port = crate::mcp::require_online_pub(project)?;
-    let res = bridge_client::bridge_invoke(port, "lua.find_ui", json!({ "q": q }), 10_000)?;
+    let find_args = match player {
+        Some(p) => json!({ "q": q, "player": p }),
+        None => json!({ "q": q }),
+    };
+    let res = bridge_client::bridge_invoke(port, "lua.find_ui", find_args, 10_000)?;
     let item = res
         .get("items")
         .and_then(|a| a.get(0))
@@ -153,7 +162,7 @@ fn step_capture_ui(project: &std::path::Path, step: &Value) -> Result<Value> {
         })
         .ok_or_else(|| anyhow!("capture_ui 命中项无 rect（不可见？）：'{q}'"))?;
     let crop = Some((rect.0 - pad, rect.1 - pad, rect.2 + pad * 2.0, rect.3 + pad * 2.0));
-    let mut out = capture::capture_game_mcp(project, 1.0, crop, max_width)?;
+    let mut out = capture::capture_game_mcp(project, 1.0, crop, max_width, player, true, 200)?;
     if candidates > 1 {
         // 多命中取第一条属「静默默认」——显式回显候选数防误判（0.8.3 防呆纪律）
         out["candidates"] = json!(candidates);
@@ -175,6 +184,11 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
         .get("stop_on_error")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+    // 0.8.7 多人调试：场景级 default_player 作步骤缺省玩家号（步骤级 player 覆盖）
+    let default_player = args.get("default_player").and_then(|v| v.as_i64());
+    let step_player = |step: &Value| -> Option<i64> {
+        step.get("player").and_then(|v| v.as_i64()).or(default_player)
+    };
 
     let t0 = std::time::Instant::now();
     let mut results: Vec<Value> = Vec::new();
@@ -206,14 +220,25 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                     .and_then(|v| v.as_u64())
                     .unwrap_or(10_000);
                 let port = crate::mcp::require_online_pub(&project)?;
-                bridge_client::bridge_invoke(
-                    port,
-                    id,
-                    step.get("args").cloned().unwrap_or(json!({})),
-                    timeout,
-                )
+                // 0.8.7：步骤级 player（或场景级 default_player）注入 invoke args（args 已带则不动）
+                let mut invoke_args = step.get("args").cloned().unwrap_or(json!({}));
+                if let (Some(p), Some(o)) = (step_player(&step), invoke_args.as_object_mut()) {
+                    o.entry("player").or_insert(json!(p));
+                }
+                bridge_client::bridge_invoke(port, id, invoke_args, timeout)
             }
-            "start_debug" => crate::mcp::tool_start_debug_pub(&json!({"project_path": project})),
+            "start_debug" => {
+                // 0.8.7：透传 players/full（players=2~4 或逐玩家数组 → 多人拉起）
+                let mut a = json!({"project_path": project});
+                let o = a.as_object_mut().unwrap();
+                if let Some(v) = step.get("players") {
+                    o.insert("players".into(), v.clone());
+                }
+                if let Some(v) = step.get("full") {
+                    o.insert("full".into(), v.clone());
+                }
+                crate::mcp::tool_start_debug_pub(&a)
+            }
             "stop_debug" => crate::mcp::tool_stop_debug_pub(&json!({"project_path": project})),
             "capture" => {
                 let ratio = step.get("ratio").and_then(|v| v.as_f64()).unwrap_or(1.0);
@@ -225,17 +250,24 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                     }
                 });
                 let max_width = crate::mcp::parse_max_width(&step, 1280)?;
-                capture::capture_game_mcp(&project, ratio, crop, max_width)
+                let restore = step.get("restore").and_then(|v| v.as_bool()).unwrap_or(true);
+                capture::capture_game_mcp(&project, ratio, crop, max_width, step_player(&step), restore, 200)
             }
-            "capture_ui" => step_capture_ui(&project, &step),
+            "capture_ui" => step_capture_ui(&project, &step, step_player(&step)),
             "logs" => {
-                let source = step.get("source").and_then(|v| v.as_str()).unwrap_or("");
                 let tail = step
                     .get("tail_lines")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as usize;
                 let m = step.get("match").and_then(|v| v.as_str());
-                logs::get_game_logs(&project, source, tail, m).map_err(|e| anyhow!(e))
+                // 0.8.7：player 给定 → 在线 tee 通道（分玩家客户端日志）
+                if let Some(p) = step_player(&step) {
+                    let clear = step.get("clear").and_then(|v| v.as_bool()).unwrap_or(false);
+                    logs::get_game_logs_tee(&project, p, tail, m, clear).map_err(|e| anyhow!(e))
+                } else {
+                    let source = step.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                    logs::get_game_logs(&project, source, tail, m).map_err(|e| anyhow!(e))
+                }
             }
             "wait" => {
                 let ms = step.get("ms").and_then(|v| v.as_u64()).unwrap_or(500).min(60_000);
@@ -258,11 +290,16 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                 };
                 let port = crate::mcp::require_online_pub(&project)?;
                 let start = std::time::Instant::now();
+                // 0.8.7：player 定向到对应玩家客户端查询
+                let find_args = match step_player(&step) {
+                    Some(p) => json!({ "q": q, "player": p }),
+                    None => json!({ "q": q }),
+                };
                 loop {
                     // 桥暂时不可用/单次超时（PIE 重启窗口期）视为「本轮未命中」继续
                     // 轮询到 timeout——wait_for 的核心场景正是等界面在重启后出现；
                     // assert_text 无轮询语义，桥错误直接上抛
-                    match bridge_client::bridge_invoke(port, "lua.find_ui", json!({ "q": q }), 10_000)
+                    match bridge_client::bridge_invoke(port, "lua.find_ui", find_args.clone(), 10_000)
                     {
                         Ok(res) => {
                             let total = res.get("total").and_then(|v| v.as_u64()).unwrap_or(0);

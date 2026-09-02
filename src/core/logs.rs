@@ -127,6 +127,56 @@ fn file_info(path: &Path, desc: &str, tail_lines: usize, match_re: Option<&regex
     info
 }
 
+/// 同条收纳桶（文件日志与 tee 通道共用）：key=去前缀行 → (次数, 最近行号, 最近原文)
+struct Bucket {
+    order: Vec<String>,
+    map: std::collections::HashMap<String, (usize, usize, String)>,
+    raw_total: usize,
+}
+impl Bucket {
+    fn new() -> Self {
+        Self { order: Vec::new(), map: std::collections::HashMap::new(), raw_total: 0 }
+    }
+    /// key = 同条比对键（文件行剥 [时间][pid][序号] 前缀；tee 行剥帧号等易变段），line = 展示原文
+    fn push(&mut self, lineno: usize, key: String, line: &str) {
+        self.raw_total += 1;
+        match self.map.get_mut(&key) {
+            Some(v) => {
+                v.0 += 1;
+                v.1 = lineno;
+                v.2 = line.to_string();
+            }
+            None => {
+                self.map.insert(key.clone(), (1, lineno, line.to_string()));
+                self.order.push(key);
+            }
+        }
+    }
+    /// 按「最近出现行号」升序输出（最近发生的排最后），超上限截断保留最新若干条
+    fn render(&self, cap: usize) -> (Vec<String>, usize, bool) {
+        let mut entries: Vec<&(usize, usize, String)> =
+            self.order.iter().filter_map(|k| self.map.get(k)).collect();
+        entries.sort_by_key(|v| v.1);
+        let distinct = entries.len();
+        let truncated = distinct > cap;
+        let lines: Vec<String> = entries
+            .into_iter()
+            .skip(distinct.saturating_sub(cap))
+            .map(|(n, lineno, line)| {
+                if *n > 1 {
+                    format!("{lineno}: {line} (×{n})")
+                } else {
+                    format!("{lineno}: {line}")
+                }
+            })
+            .collect();
+        (lines, distinct, truncated)
+    }
+}
+
+const MATCH_CAP: usize = 100;
+const ERROR_CAP: usize = 20;
+
 /// 日志行扫描（0.8.0 易用性增强）：
 /// - match 命中行：同条收纳（剥离行首 [时间][pid] 前缀后比对，同一条只回最近一次 + ×N 计数），
 ///   防刷屏行灌爆上下文，同时保留「发生了几次」的排障关键信息；
@@ -134,11 +184,7 @@ fn file_info(path: &Path, desc: &str, tail_lines: usize, match_re: Option<&regex
 ///   前置改动引发的错误会让目标逻辑根本没执行到（假阳性/假阴性），只看 match 命中会漏判。
 /// 行格式："行号: 原文"，重复行附 " (×N)"。
 fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value) {
-    use std::collections::HashMap;
     use std::io::{BufRead, BufReader};
-
-    const MATCH_CAP: usize = 100;
-    const ERROR_CAP: usize = 20;
 
     let Ok(f) = std::fs::File::open(path) else {
         return;
@@ -152,54 +198,6 @@ fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value
         ((?i)\[(?:info|error|warning|warn|debug|fatal)\])?(\[\d{1,12}\])?\s*",
     )
     .unwrap();
-
-    /// 同条收纳桶：key=去前缀行 → (次数, 最近行号, 最近原文)
-    struct Bucket {
-        order: Vec<String>,
-        map: HashMap<String, (usize, usize, String)>,
-        raw_total: usize,
-    }
-    impl Bucket {
-        fn new() -> Self {
-            Self { order: Vec::new(), map: HashMap::new(), raw_total: 0 }
-        }
-        fn push(&mut self, lineno: usize, line: &str, prefix_re: &regex::Regex) {
-            self.raw_total += 1;
-            // $1 回填级别括号（保留在键内），时间/pid/序号剥离
-            let key = prefix_re.replace(line, "$1").into_owned();
-            match self.map.get_mut(&key) {
-                Some(v) => {
-                    v.0 += 1;
-                    v.1 = lineno;
-                    v.2 = line.to_string();
-                }
-                None => {
-                    self.map.insert(key.clone(), (1, lineno, line.to_string()));
-                    self.order.push(key);
-                }
-            }
-        }
-        /// 按「最近出现行号」升序输出（最近发生的排最后），超上限截断保留最新若干条
-        fn render(&self, cap: usize) -> (Vec<String>, usize, bool) {
-            let mut entries: Vec<&(usize, usize, String)> =
-                self.order.iter().filter_map(|k| self.map.get(k)).collect();
-            entries.sort_by_key(|v| v.1);
-            let distinct = entries.len();
-            let truncated = distinct > cap;
-            let lines: Vec<String> = entries
-                .into_iter()
-                .skip(distinct.saturating_sub(cap))
-                .map(|(n, lineno, line)| {
-                    if *n > 1 {
-                        format!("{lineno}: {line} (×{n})")
-                    } else {
-                        format!("{lineno}: {line}")
-                    }
-                })
-                .collect();
-            (lines, distinct, truncated)
-        }
-    }
 
     let mut hits = Bucket::new();
     let mut errors = Bucket::new();
@@ -216,11 +214,14 @@ fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value
                 let line = line.trim_end();
                 if let Some(re) = match_re {
                     if re.is_match(line) {
-                        hits.push(lineno, line, &prefix_re);
+                        // $1 回填级别括号（保留在键内），时间/pid/序号剥离
+                        let key = prefix_re.replace(line, "$1").into_owned();
+                        hits.push(lineno, key, line);
                     }
                 }
                 if error_re.is_match(line) {
-                    errors.push(lineno, line, &prefix_re);
+                    let key = prefix_re.replace(line, "$1").into_owned();
+                    errors.push(lineno, key, line);
                 }
             }
             Err(_) => break,
@@ -310,6 +311,111 @@ fn latest_file(dir: &Path, prefix: &str) -> Option<PathBuf> {
                 .and_then(|m| m.modified())
                 .unwrap_or(std::time::UNIX_EPOCH)
         })
+}
+
+// ---------------------------------------------------------------- 0.8.7 分玩家日志（tee 通道）
+
+/// 分玩家日志（在线 tee 通道）：桥 mp_debug.lua 常驻监听调试信息面板的 debug_client_info
+/// 投递进每玩家环形缓冲，本函数经桥 mp_logs 拉取后复用文件日志同款 match/errors/同条收纳处理。
+/// 边界（与桥侧一致）：tee 无历史（编辑器本次调试注册时点起）、只含面板管线放行的客户端日志；
+/// 服务端日志仍走文件型（省略 player）。
+pub fn get_game_logs_tee(
+    project_root: &Path,
+    player: i64,
+    tail_lines: usize,
+    match_pattern: Option<&str>,
+    clear: bool,
+) -> Result<Value, String> {
+    use super::bridge_client;
+    let target = locate::locate(project_root)?;
+    let port = bridge_client::online_port(&target.engine_root()?)
+        .ok_or_else(|| "分玩家日志需编辑器在线（tee 通道）；文件日志请省略 player".to_string())?;
+    let res = bridge_client::bridge_rpc(
+        port,
+        "mp_logs",
+        json!({ "player": player, "tail": 1000, "clear": clear }),
+        15_000,
+    )
+    .map_err(|e| format!("{e:#}"))?;
+    if clear {
+        return Ok(json!({ "cleared": true, "player": player }));
+    }
+
+    let match_re = match match_pattern {
+        Some(p) if !p.trim().is_empty() => Some(
+            regex::Regex::new(p).map_err(|e| format!("match 正则无效（{e}），请修正后重试"))?,
+        ),
+        _ => None,
+    };
+
+    // tee 行 {player,type,message,frame,location} → 展示行 "[f<帧>][<级别>] <消息>（位置）"；
+    // 同条比对键 = 级别+消息（帧号逐帧递增不去掉会收纳失败，与文件行剥序号同理）
+    let lines = res
+        .get("lines")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let total = res.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+    let mut hits = Bucket::new();
+    let mut errors = Bucket::new();
+    let mut display: Vec<String> = Vec::with_capacity(lines.len());
+    for (i, l) in lines.iter().enumerate() {
+        let ty = l.get("type").and_then(|v| v.as_str()).unwrap_or("信息");
+        let msg = l.get("message").and_then(|v| v.as_str()).unwrap_or("");
+        let frame = l.get("frame").and_then(|v| v.as_i64());
+        let loc = l.get("location").and_then(|v| v.as_str());
+        let mut line = match frame {
+            Some(f) => format!("[f{f}][{ty}] {msg}"),
+            None => format!("[{ty}] {msg}"),
+        };
+        if let Some(loc) = loc.filter(|s| !s.is_empty()) {
+            line.push_str(&format!("（{loc}）"));
+        }
+        let key = format!("{ty}|{msg}");
+        if let Some(re) = &match_re {
+            if re.is_match(&line) {
+                hits.push(i + 1, key.clone(), &line);
+            }
+        }
+        // 面板管线已把级别映射为中文（错误/信息/警告），errors 段按「错误」上浮
+        if ty == "错误" {
+            errors.push(i + 1, key, &line);
+        }
+        display.push(line);
+    }
+
+    let mut info = json!({
+        "channel": "tee",
+        "player": player,
+        "total": total,
+        "note": res.get("note").cloned().unwrap_or(Value::Null),
+    });
+    if let Some(re) = &match_re {
+        let (ls, distinct, truncated) = hits.render(MATCH_CAP);
+        info["match"] = json!({
+            "pattern": re.as_str(),
+            "total": hits.raw_total,
+            "distinct": distinct,
+            "returned": ls.len(),
+            "truncated": truncated,
+            "lines": ls,
+        });
+    }
+    let (ls, distinct, truncated) = errors.render(ERROR_CAP);
+    info["errors"] = json!({
+        "total": errors.raw_total,
+        "distinct": distinct,
+        "returned": ls.len(),
+        "truncated": truncated,
+        "lines": ls,
+    });
+    if tail_lines > 0 {
+        let tail: Vec<&String> = display.iter().rev().take(tail_lines).rev().collect();
+        info["tail"] = Value::String(
+            tail.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n"),
+        );
+    }
+    Ok(info)
 }
 
 #[cfg(test)]

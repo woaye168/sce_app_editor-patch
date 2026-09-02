@@ -275,3 +275,32 @@ unload 无残留（operation_menu.lua:39-56 遍历 GamePlayInEditor/1..4 槽位�
 - 桥 Lua 模块加载期**不得** require 'ui.menu_bar'（顶层副作用打乱官方初始化，
   实证导致模拟多人调试崩溃退出）——一律 load_map_done 后经
   `package.loaded['@xdeditor/ui/menu_bar']` 或延迟 require 获取。
+
+## 10. 0.8.7 开发期实测回填（2026-09-03，test_res002 真机验收）
+
+> 本节为 0.8.7 验收实跑记录（dev §7 spike 记录位的最终值 + 新发现）。
+
+- **Delay=0 同帧拉起稳定性定论**：2 人局连续 3 次 + 4 人局 1 次全部成功（本轮验收
+  mp_verify4 序列）；加上 09-01/09-02 的 3 次，累计 7 次零失败——Delay 缺省 0 定稿。
+- **数组形态映射正确**：`[{player=2},{player=1,delay=1}]` → 玩家1→GamePlayInEditor2、
+  玩家2→GamePlayInEditor1（SlotID=数组下标），归属映射表正确跟踪非平凡映射。
+- **【新发现】rapid 重拉崩溃**：多人局「互斥先停→立即重拉」密循环（25s 内 5 局）会让
+  上一局的服务端销毁广播落到新局，实测两次把编辑器整进程打崩（game_exit 后进程消失）。
+  修复 = 槽位全部卸载确认后**再留 3s teardown 余量**才 debug_save_as（1.5s 不够，3s 后
+  连续 5 局全绿）。正常节奏使用无此问题。
+- **互斥语义验证**：`stopped_previous=true` 正确回显；单↔多人互斥切换无残留；
+  stop_debug 多人局全槽位卸载 clients=[]。
+- **定向寻址 v2 验证**：eval 缺省=玩家1/player=2 各回各自 slot_id；player=3 报错
+  「玩家 3 不在线（当前在线：1,2）」；单人局带 player 回退 + 告知文案统一。
+- **暂停/恢复验证**：set_pause player=2 paused=true → eval 超时 3s 报统一恢复引导文案；
+  paused=false 后约 1s 内重连，eval 应答回归；get_status.clients[].paused 标注正确；
+  单人局调用报错「单人调试槽位无暂停能力」。
+- **截图验证**：capture_game player=1/2 各得对应视角（VLM 判读两张图 UI/场景显著不同）；
+  截后焦点自动还原（restore 缺省 true）；q+player 局部截图链路跑通；
+  多人局 q 不带 player → 按玩家 1 + hint。等帧 200ms 缺省实测充足。
+- **日志 tee 验证**：player=1/2 各自只回本玩家日志（total 10/36，内容归属正确）；
+  match「背包」在 tee 通道精确命中；单人局 player=1 命中未标记通道 + 回退告知。
+- **新局冷启动窗口**：多人局拉起后数秒内 dbg 快照未预热，lua.tap/find_ui 可能 3s 超时
+  （重试即恢复）——与单人局既有行为同源，非多人引入。
+- **run_scenario 双客户端脚本**（start_debug players=2 → tap 商店(p1)/背包(p2) →
+  双玩家截图 → logs match → set_pause 暂停/超时/恢复 → stop_debug）跑绿。

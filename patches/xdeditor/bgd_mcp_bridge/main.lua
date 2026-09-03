@@ -428,13 +428,28 @@ handlers.capture_game = function(params, id)
     if not sceneMgr then
         error('SceneManager 不可用')
     end
+    -- 0.8.7 门禁修复：纯多人局没有无序号槽位，旧判定误报「游戏未在调试」（实机复现）。
+    -- params.player 经归属映射选槽（缺省 = 多人局 1 号玩家/单人局唯一玩家；
+    -- 单人局带 player 回退 + note 告知，与其他入口同一文案模板）
     local ui_name = 'GamePlayInEditor'
+    local note, player = nil, nil
+    if mp_debug_mod then
+        local slot_id, n, err, p = mp_debug_mod.slot_for_player(mp_ctx,
+            type(params) == 'table' and params.player or nil)
+        if err then
+            error(err)
+        end
+        note, player = n, p
+        if slot_id then
+            ui_name = slot_id
+        end
+    end
     local debugging = false
     pcall(function()
         debugging = pluginMgr and pluginMgr:is_plugin_ui_loaded(ui_name)
     end)
     if not debugging then
-        error('游戏未在调试（GamePlayInEditor 槽位不存在），请先 start_debug')
+        error(('游戏未在调试（%s 槽位不存在），请先 start_debug'):format(ui_name))
     end
     local viewport = sceneMgr:get_ui_viewport(ui_name)
     if not viewport then
@@ -452,7 +467,14 @@ handlers.capture_game = function(params, id)
     sceneMgr:snapshot_scene_callback(ui_name, 0, 0, w, h, path, 1.0, nil, function(result)
         if result and result > 0 then
             logi('截图成功：' .. path)
-            send_ack(id, true, { path = path, width = w, height = h })
+            local ret = { path = path, width = w, height = h }
+            if player then
+                ret.player = player
+            end
+            if note then
+                ret.note = note
+            end
+            send_ack(id, true, ret)
         else
             logi('截图失败：result=' .. tostring(result))
             send_ack(id, false, 'snapshot_scene_callback 返回 ' .. tostring(result))

@@ -114,7 +114,9 @@ function M.setup(ctx)
         dbg_next_id = dbg_next_id + 1
         local req_id = tostring(dbg_next_id)
         dbg_pending[req_id] = { ack = ack_id, target = target, player = player_no, note = note }
-        pcall(base.wait, 3000, function()
+        -- 超时兜底依赖引擎计时器：base.wait 失败时不发请求直接报错——否则挂起项永不到期，
+        -- 调用方只能等外层笼统超时且丢失现场（mp_debug 同类问题已按同原则修复）
+        local ok_wait = pcall(base.wait, 3000, function()
             local pend = dbg_pending[req_id]
             if pend then
                 dbg_pending[req_id] = nil
@@ -127,6 +129,10 @@ function M.setup(ctx)
                 send_ack(ack_id, false, '游戏侧' .. hint)
             end
         end)
+        if not ok_wait then
+            dbg_pending[req_id] = nil
+            error('引擎计时器不可用（base.wait 失败），dbg 请求已取消——请重试')
+        end
         -- 多人局恒带 target（槽位序号）+ proto=2；单人局不带 target（协议字节级兼容旧游戏框架）
         local payload = { id = req_id, cmd = cmd, args = args }
         if target ~= nil then

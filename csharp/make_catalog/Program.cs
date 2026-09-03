@@ -365,7 +365,7 @@ static class CatalogGenerator
         yield return Entry("lua.publish_project", "lua", "publish_project", "object", "danger",
             []);
         yield return Entry("lua.capture_game", "lua", "capture_game", "object", "read",
-            [Param("path", "string", false, null, "png 落盘绝对路径（缺省自动生成到 用户目录/screenShot/）")]);
+            [Param("path", "string", false, null, "png 落盘绝对路径（缺省自动生成到 用户目录/screenShot/）"), PlayerParam()]);
         yield return Entry("lua.get_game_view_rect", "lua", "get_game_view_rect", "object", "read",
             [PlayerParam()]);
         yield return Entry("lua.find_ui", "lua", "find_ui", "object",

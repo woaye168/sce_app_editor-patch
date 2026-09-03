@@ -116,7 +116,7 @@ function M.clients(ctx)
     return arr
 end
 
----玩家号解析（ui_loop 定向用）：多人局 → target=玩家号；单人局 → nil + 告知
+---玩家号解析（ui_loop 定向用）：多人局 → 返回玩家号（dbg_target 再译槽位序号）；单人局 → nil + 告知
 ---@return number|nil target, string|nil note, string|nil err
 function M.resolve_player(ctx, player)
     local own = M.effective_ownership(ctx)

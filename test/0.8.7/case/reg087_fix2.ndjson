@@ -1,0 +1,7 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"invoke_capability","arguments":{"id":"lua.eval","args":{"code":"return base.local_player():get_slot_id()","player":1},"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"invoke_capability","arguments":{"id":"lua.eval","args":{"code":"log.error('FIX087_P1 玩家1的错误') return 'p1'","player":1},"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"invoke_capability","arguments":{"id":"lua.eval","args":{"code":"log.error('FIX087_P2 玩家2的错误') return 'p2'","player":2},"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_game_logs","arguments":{"player":1,"match":"FIX087","project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_game_logs","arguments":{"player":2,"match":"FIX087","project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"get_game_logs","arguments":{"player":3,"tail_lines":5,"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"capture_game","arguments":{"player":2,"max_width":320,"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}

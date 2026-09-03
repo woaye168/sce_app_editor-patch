@@ -461,7 +461,8 @@ handlers.capture_game = function(params, id)
     return DEFERRED
 end
 
--- ===== 0.8.7 多人调试适配（mp_debug.lua：mp_start/mp_switch/set_pause/mp_logs + 归属映射） =====
+-- ===== 0.8.7 多人调试适配（mp_debug.lua：mp_start/mp_switch/set_pause + 归属映射；
+-- mp_log_tee.lua：分玩家日志 tee/mp_logs） =====
 -- 必须先于 ui_loop 装配：ui_loop 的定向寻址（dbg_target）与 get_status/get_game_view_rect 都引用其状态
 do
     local ok, mp = pcall(require, 'sce_app_editor-patch.bgd_mcp_bridge.mp_debug')
@@ -484,7 +485,24 @@ do
                 return window_title_bar
             end,
             auto_suppress = auto_suppress_on,
+            -- mp_log_tee 查询归属映射用（闭包延迟解析，无装配顺序耦合）
+            get_ownership = function()
+                return mp_debug_mod and mp_debug_mod.effective_ownership(mp_ctx) or nil
+            end,
         }
+        -- 分玩家日志 tee 先装配（mp_start 拉起时经 mp_ctx.tee 清空/补挂）
+        local ok_tee, tee_mod = pcall(require, 'sce_app_editor-patch.bgd_mcp_bridge.mp_log_tee')
+        if ok_tee and type(tee_mod) == 'table' and type(tee_mod.setup) == 'function' then
+            mp_ctx.tee = tee_mod
+            local h = tee_mod.setup(mp_ctx)
+            if type(h) == 'table' then
+                for k, v in pairs(h) do
+                    handlers[k] = v
+                end
+            end
+        else
+            logi('mp_log_tee 加载失败，分玩家日志能力停用: ' .. tostring(tee_mod))
+        end
         local h = mp.setup(mp_ctx)
         if type(h) == 'table' then
             for k, v in pairs(h) do
@@ -506,12 +524,13 @@ do
             deferred = DEFERRED,
             logi = logi,
             is_debugging = is_any_debugging,
-            -- 0.8.7 定向寻址：player → dbg target（nil=单人不过滤）；note=单人回退告知；err=玩家不在线
+            -- 0.8.7 定向寻址：player（数编玩家号）→ dbg target（PIE 槽位序号——get_slot_id()
+            -- 实测返回槽位序号而非玩家号，桥边界经归属映射翻译）；note=单人回退告知；err=玩家不在线
             dbg_target = function(player)
                 if not mp_debug_mod then
-                    return nil, nil, nil
+                    return nil, nil, nil, nil
                 end
-                return mp_debug_mod.resolve_player(mp_ctx, player)
+                return mp_debug_mod.dbg_target(mp_ctx, player)
             end,
         })
         if type(h) == 'table' then

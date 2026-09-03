@@ -625,8 +625,10 @@ public sealed class McpServer
                 case "mp_start":
                 {
                     // 多人拉起（mp_debug.lua：互斥/预校验/字段补全/直调 debug_save_as/逐槽位轮询全在 Lua 侧自持，
-                    // 失败原因精确返回）。弹窗抑制由 Lua 侧 auto_suppress 负责；轮询在 Lua 内完成，超时对齐 120s。
-                    return await ViaLuaAsync("mp_start", p, StartDebugTimeoutMs + 10000).ConfigureAwait(false);
+                    // 失败原因精确返回）。弹窗抑制由 Lua 侧 auto_suppress 负责。
+                    // 超时 160s：Lua 侧最坏 = 15s 停等 + 3s teardown 余量 + 120s 槽位轮询 = 138s，
+                    // 必须大于它否则 Lua 的精确报错被本层笼统超时截胡（exe 侧 180s 最外层兜底）
+                    return await ViaLuaAsync("mp_start", p, StartDebugTimeoutMs + 40000).ConfigureAwait(false);
                 }
                 case "mp_switch":
                 {

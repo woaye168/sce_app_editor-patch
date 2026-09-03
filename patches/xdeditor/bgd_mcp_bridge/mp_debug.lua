@@ -3,27 +3,28 @@
 --   1. mp_start   多人拉起（纯 Lua 直调 menu_bar.debug_save_as，已 spike 验证；执行序见下）
 --   2. mp_switch  切焦（switch_page + set_game_ui_focus，capture 截图内部编排用）
 --   3. set_pause  玩家暂停/恢复（disconnect/reconnect_game_in_editor，官方 tab 暂停按钮同款）
---   4. mp_logs    分玩家日志 tee（常驻监听 EVENT.add_info_list 的 debug_client_info 投递）
---   5. 归属映射表 + 玩家号解析（get_status.clients / ui_loop target 寻址 / 视口选择共用）
+--   4. 归属映射表 + 玩家号解析（get_status.clients / ui_loop target 寻址 / 视口选择共用）
+-- （分玩家日志 tee 已拆到 mp_log_tee.lua，单文件 500 行职责纪律）
 -- 纪律（前科实证）：
 --   - 无图不碰 DI：menu_bar/obj_manager 一律在用的时候才取（load_map_done 后），模块加载期零触碰
 --   - 不 require 'ui.menu_bar'：用 ctx.get_menu_bar()（main.lua 延迟初始化后持有），
 --     obj_manager/ini 等补丁内 require 正常（本模块有 xdeditor 包身份）
 --   - is_plugin_ui_loaded 对未注册槽位抛错：枚举一律 pcall（true=在线/false=已卸载/nil=未注册）
---   - tee 回调签名 function(self, module, data) 且必须返回 nil（dispatch 遇非 nil 中断投递）
 -- 机制底档：doc/research/multi-player-debug.md
+--
+-- 寻址关键实测（2026-09-03 回归实证，修正 dev/研究文档的错误结论）：
+--   base.local_player():get_slot_id() 返回的是 PIE 槽位序号（GamePlayInEditor<N> 的 N），
+--   不是数编玩家号——players 数组形态（玩家 2→槽位 1）下 eval 日志交叉归属暴露。
+--   因此 dbg 协议内部一律用「槽位序号」寻址/配对，数编玩家号只在桥边界经归属映射翻译。
 
 local M = {}
 
 local MAX_SLOTS = 4
-local TEE_CAP = 1000 -- 每玩家环形缓冲条数（新一局拉起时清空）
 -- 官方 tab 图标取色（menu_bar.lua:62-68 局部值，复刻保持一致）
 local ICON_COLORS = { '#1BB05D', '#F4CA34', '#339CFE', '#F7649C' }
 
 -- ===== 模块级状态（编辑器 VM 会话级） =====
 local ownership = nil      -- 归属映射表 { [player] = { slot_id, user_id, icon_color, paused } }
-local tee = {}             -- 日志 tee 缓冲 { [player(0=未标记)] = { {type,message,frame,location}, ... } }
-local tee_registered = false
 
 local function slot_name(i)
     return 'GamePlayInEditor' .. tostring(i)
@@ -141,6 +142,27 @@ function M.resolve_player(ctx, player)
     return nil, nil, nil
 end
 
+---玩家号 → dbg 协议 target（PIE 槽位序号）。槽位序号 ≠ 数编玩家号（见文件头实测结论）：
+---dbg_bus 游戏侧 get_slot_id() 拿到的是槽位序号，协议寻址/回执配对必须用槽位序号，
+---玩家号在此完成边界翻译（经归属映射表 slot_id 尾号）。
+---@return number|nil slot_index（nil=单人局不带 target）, number|nil player, string|nil note, string|nil err
+function M.dbg_target(ctx, player)
+    local p, note, err = M.resolve_player(ctx, player)
+    if err then
+        return nil, nil, nil, err
+    end
+    if p == nil then
+        return nil, nil, note, nil -- 单人局（含带 player 回退）：不带 target
+    end
+    local own = M.effective_ownership(ctx)
+    local slot_id = own and own[p] and own[p].slot_id or nil
+    local idx = slot_id and tonumber(slot_id:match('^GamePlayInEditor(%d+)$')) or nil
+    if idx == nil then
+        return nil, nil, nil, ('玩家 %d 的槽位序号解析失败（slot_id=%s）'):format(p, tostring(slot_id))
+    end
+    return idx, p, note, nil
+end
+
 ---玩家号 → PIE 槽位 id（get_game_view_rect 视口选择用）
 ---@return string|nil slot_id（nil=单人无序号槽位）, string|nil note, string|nil err, number|nil player
 function M.slot_for_player(ctx, player)
@@ -153,58 +175,6 @@ function M.slot_for_player(ctx, player)
         return own[target].slot_id, nil, nil, target
     end
     return nil, note, nil, nil
-end
-
--- ===== 分玩家日志 tee =====
-
-local function tee_push(player, entry)
-    local key = player or 0 -- 0 = 未标记（单人局日志无 userID 映射）
-    local buf = tee[key]
-    if not buf then
-        buf = {}
-        tee[key] = buf
-    end
-    buf[#buf + 1] = entry
-    if #buf > TEE_CAP then
-        table.remove(buf, 1)
-    end
-end
-
----注册 tee 常驻监听（幂等）。踩坑实锤：回调首参是 trig 自身（方法调用语义），
----必须 function(self, module, data)；返回非 nil 会中断后续投递，必须返回 nil。
-local function ensure_tee(ctx)
-    if tee_registered then
-        return
-    end
-    if not (EDITOR and EDITOR.event_register and EVENT and EVENT.add_info_list) then
-        return
-    end
-    local ok = pcall(EDITOR.event_register, EVENT.add_info_list, function(_, module, data)
-        if module ~= 'debug_client_info' or type(data) ~= 'table' then
-            return
-        end
-        local player = data.info_user_info and data.info_user_info.player or nil
-        local loc = nil
-        if type(data.info_location) == 'table' then
-            loc = data.info_location.text
-            if data.info_location.detail then
-                loc = (loc or '') .. ':' .. tostring(data.info_location.detail)
-            end
-        elseif type(data.info_location) == 'string' then
-            loc = data.info_location
-        end
-        tee_push(player, {
-            player = player,
-            type = data.info_type,
-            message = data.info_message,
-            frame = data.info_frame,
-            location = loc,
-        })
-    end)
-    if ok then
-        tee_registered = true
-        ctx.logi('分玩家日志 tee 已挂接（debug_client_info 投递）')
-    end
 end
 
 -- ===== 预校验辅助 =====
@@ -269,7 +239,8 @@ end
 -- ===== handlers =====
 
 ---注册 handlers。ctx: { send_ack, deferred, logi,
----  get_plugin_mgr, get_scene_mgr, get_main_frame, get_menu_bar, auto_suppress }
+---  get_plugin_mgr, get_scene_mgr, get_main_frame, get_menu_bar, auto_suppress, tee }
+---（tee = mp_log_tee 模块：ensure()/reset() 拉起时补挂与清空）
 ---@return table<string, function> handlers（挂到 main.lua 的 handlers 表）
 function M.setup(ctx)
     local send_ack = ctx.send_ack
@@ -277,7 +248,9 @@ function M.setup(ctx)
     local logi = ctx.logi
 
     -- 模块加载即尝试挂 tee（EDITOR/EVENT 此刻不可用则等 mp_start 时补挂）
-    ensure_tee(ctx)
+    if ctx.tee then
+        ctx.tee.ensure()
+    end
 
     local handlers = {}
 
@@ -325,9 +298,13 @@ function M.setup(ctx)
                 done(false)
                 return
             end
-            pcall(base.wait, 500, function()
+            -- base.wait 自身失败（引擎计时器不可用）时兜底终止，防静默挂起无应答
+            local ok_wait = pcall(base.wait, 500, function()
                 poll_all_online(sel, round + 1, deadline_rounds, done)
             end)
+            if not ok_wait then
+                done(false)
+            end
         end
 
         local stopped_previous = false
@@ -449,8 +426,10 @@ function M.setup(ctx)
                 error('debug_save_as 拉起失败：' .. tostring(err))
             end
             ownership = new_own
-            tee = {} -- 新一局清空 tee 缓冲
-            ensure_tee(ctx)
+            if ctx.tee then
+                ctx.tee.reset() -- 新一局清空 tee 缓冲
+                ctx.tee.ensure()
+            end
 
             -- 逐槽位轮询上线（对齐 start_debug 120s 超时；轮询用补全后的 t，含 SlotID）
             poll_all_online(t, 0, 240, function(all_ok)
@@ -480,13 +459,23 @@ function M.setup(ctx)
             stopped_previous = true
             ownership = nil
             pcall(mb.call_command, '调试/停止')
+            -- deferred 路径的 launch 在计时器回调里执行，error 无人捕获会静默挂起
+            -- （调用方只能等 150s 超时且丢失预校验精确报错）——统一 xpcall 兜底回 nack
+            local function launch_guarded()
+                local ok, e = xpcall(launch, debug.traceback)
+                if not ok then
+                    send_ack(id, false, tostring(e))
+                end
+            end
             local rounds = 0
             local function wait_stopped()
                 if not M.any_debugging(ctx) then
                     -- 槽位全部卸载后再留 3s 余量：C++/服务端 teardown 滞后于 UI 卸载，
                     -- 立即重拉会让上一局的销毁广播落到新局（实测 rapid 重拉致编辑器崩溃，
                     -- 1.5s 余量在连续 5 次重拉第 5 次仍崩，3s 再验证）
-                    pcall(base.wait, 3000, launch)
+                    if not pcall(base.wait, 3000, launch_guarded) then
+                        launch_guarded()
+                    end
                     return
                 end
                 rounds = rounds + 1
@@ -494,9 +483,13 @@ function M.setup(ctx)
                     send_ack(id, false, '停止上一次调试超时（15s）：请手动「调试/停止」后重试')
                     return
                 end
-                pcall(base.wait, 500, wait_stopped)
+                if not pcall(base.wait, 500, wait_stopped) then
+                    send_ack(id, false, '引擎计时器不可用（base.wait 失败），无法确认停止状态——请手动「调试/停止」后重试')
+                end
             end
-            pcall(base.wait, 500, wait_stopped)
+            if not pcall(base.wait, 500, wait_stopped) then
+                wait_stopped()
+            end
         end
         return DEFERRED
     end
@@ -585,43 +578,6 @@ function M.setup(ctx)
         end
         entry.paused = params.paused -- 桥自持标注（手动点 tab 暂停按钮不经过桥会漂移，只影响标注）
         return { ok = true, player = p, paused = params.paused }
-    end
-
-    ---分玩家日志 tee 查询/清空（tee 只含面板管线放行的日志；无历史，注册时点起）
-    handlers.mp_logs = function(params)
-        params = type(params) == 'table' and params or {}
-        ensure_tee(ctx)
-        if not tee_registered then
-            error('日志 tee 不可用（EDITOR 事件总线未就绪）')
-        end
-        -- 单人局日志无 userID 映射（player=nil 归「未标记」缓冲 0）：单人局 player=1 查询命中未标记行
-        local own = M.effective_ownership(ctx)
-        local key = own and (params.player or 1) or 0
-        if params.clear == true then
-            if params.player then
-                tee[key] = nil
-            else
-                tee = {}
-            end
-            return { cleared = true }
-        end
-        local buf = tee[key] or {}
-        local tail = tonumber(params.tail) or 100
-        local lines = {}
-        local start = math.max(1, #buf - tail + 1)
-        for i = start, #buf do
-            lines[#lines + 1] = buf[i]
-        end
-        local ret = {
-            lines = lines,
-            total = #buf,
-            player = params.player,
-            note = 'tee 通道自编辑器本次调试起收集（无历史）；仅含面板管线放行的客户端日志，服务端日志请省略 player 走文件型',
-        }
-        if not own and params.player ~= nil then
-            ret.note = '当前为单人调试，player 参数已忽略（日志归未标记通道）；如需多人，请 start_debug{players=N}'
-        end
-        return ret
     end
 
     return handlers

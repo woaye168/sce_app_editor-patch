@@ -1,0 +1,6 @@
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"start_debug","arguments":{"full":true,"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_status","arguments":{"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"invoke_capability","arguments":{"id":"lua.eval","args":{"code":"return base.local_player():get_slot_id()","player":1},"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"invoke_capability","arguments":{"id":"lua.set_pause","args":{"player":1,"paused":true},"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"get_game_logs","arguments":{"player":1,"tail_lines":2,"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}
+{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"stop_debug","arguments":{"project_path":"c:/Users/woaye/Documents/SCE Projects/test_res002"}}}

@@ -137,13 +137,16 @@ fn tool_start_debug(args: &Value) -> Result<Value> {
     // 桥内 start/restart 自身超时 120s，客户端放宽到 150s
     const DEBUG_TIMEOUT_MS: u64 = 150_000;
     // 0.8.7 多人路径：players=2~4 或逐玩家延迟数组 → 桥 mp_start（编辑器内多 PIE 实例）；
-    // full 语义对齐单人（false 且有上次调试目录 → use_last_debug_info，官方 nil 自动降级全量）
+    // full 语义对齐单人（false 且有上次调试目录 → use_last_debug_info，官方 nil 自动降级全量）。
+    // 超时 180s：Lua 侧最坏 = 15s 停等 + 3s teardown + 120s 槽位轮询 = 138s，
+    // C# /rpc 160s，exe 必须最外层兜底且大于内层，否则精确报错被笼统超时截胡
+    const MP_DEBUG_TIMEOUT_MS: u64 = 180_000;
     if let Some(players) = parse_players(args)? {
         return bridge_client::bridge_rpc(
             port,
             "mp_start",
             json!({ "players": players, "full": full }),
-            DEBUG_TIMEOUT_MS,
+            MP_DEBUG_TIMEOUT_MS,
         );
     }
     if full {
@@ -235,20 +238,7 @@ fn tool_capture_game(args: &Value) -> Result<Value> {
     // max_width 缺省 1280（上下文防爆），与 ratio 同时给出时为最终上限
     let max_width = parse_max_width(args, 1280)?;
     let mut out = capture::capture_game_mcp(&project, ratio, crop, max_width, player, restore, wait_ms)?;
-    // q 不带 player 且多人局：按 1 号玩家处理 + hint（桥侧 lua.find_ui 缺省语义已定向玩家 1）
-    if q.is_some() && player.is_none() {
-        if let Ok(port) = require_online(&project) {
-            if let Ok(st) = bridge_client::bridge_rpc(port, "get_status", json!({}), 10_000) {
-                if st["clients"].as_array().map(|a| a.len() > 1).unwrap_or(false) {
-                    let prev = out.get("note").and_then(|v| v.as_str()).unwrap_or("");
-                    out["note"] = json!(format!(
-                        "{prev}{}q 未指定 player，已按玩家 1 定位截取",
-                        if prev.is_empty() { "" } else { "；" }
-                    ));
-                }
-            }
-        }
-    }
+    // （多人局未指定 player 的提示由 do_capture 内部统一附加，此处不重复——0.8.7 复审去重）
     if candidates > 1 {
         // 多命中取第一条属「静默默认」——显式回显候选数防误判（0.8.3 防呆纪律）
         out["candidates"] = json!(candidates);

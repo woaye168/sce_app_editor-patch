@@ -25,7 +25,7 @@ src/core/              # locate/crypto/ops/backup/log/modules/slot_inject/slots�
                        # editor（编辑器生命周期/日志/设置）/bridge_client/capture
                        # kernel.rs（库登记/状态检查/进度聚合）+ kernel/{apply,restore,tests}.rs
 patches/modules.json   # 模块清单元数据（id/pkg/名称/描述/默认勾选/部署dll/注入声明）
-patches/<包>/<id>/     # 补丁模块 lua（编译期 include_str! 嵌入；bgd_mcp_bridge = main.lua + ui_loop.lua + mp_debug.lua【0.8.7 多人调试】）
+patches/<包>/<id>/     # 补丁模块 lua（编译期 include_str! 嵌入；bgd_mcp_bridge = main.lua + ui_loop.lua + mp_debug.lua + mp_log_tee.lua【0.8.7 多人调试】）
 csharp/bgd_mcp_bridge/ # .NET 9 进程内 MCP 桥（Gateway 架构，编译期嵌入 exe）
 csharp/make_catalog/   # 能力目录生成工具（编辑器升级后重跑）
 slots/<包>/<版本>/     # 插槽文件（改库源码，版本敏感）+ slot.manifest.json

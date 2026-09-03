@@ -91,6 +91,10 @@ fn module_files(id: &str) -> &'static [(&'static str, &'static str)] {
                 "mp_debug.lua",
                 include_str!("../../patches/xdeditor/bgd_mcp_bridge/mp_debug.lua"),
             ),
+            (
+                "mp_log_tee.lua",
+                include_str!("../../patches/xdeditor/bgd_mcp_bridge/mp_log_tee.lua"),
+            ),
         ],
         "pie_capture" => &[(
             "main.lua",

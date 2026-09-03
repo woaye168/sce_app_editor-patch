@@ -147,9 +147,14 @@ MutiDebugWindow.cs:813-819 确认链路 =
   eval 收到恰好 2 条 `bgd_dbg_result` 应答。
 - **`lobby.vm_name()` 游戏侧返回 nil**（dbg_bus ping 的 vm 字段现无值）——
   不能用作 VM 标识。
-- **可用 VM 身份 = `base.local_player():get_slot_id()`**（实测 VM1→1/team1，
-  VM2→2/team2，与玩家号一致）。`user_id()` 在 PIE 假用户下报错，不可用。
-  `get_team_id()` 正常。
+- **可用 VM 身份 = `base.local_player():get_slot_id()`**——**但实测返回的是 PIE
+  槽位序号，不是数编玩家号**（2026-09-03 回归实证修正：players 数组形态
+  [{player=2},{player=1}] 拉起后，玩家 2 所在 GamePlayInEditor1 的 VM 内
+  get_slot_id()=1；eval 日志经面板 userID 映射交叉归属到对方玩家，实抓获真。
+  原「VM1→1 与玩家号一致」结论只在玩家号=槽位序的自动选人下碰巧成立）。
+  `user_id()` 在 PIE 假用户下报错，不可用。`get_team_id()` 正常。
+  **落地纪律：dbg 协议 target/from 一律用槽位序号；数编玩家号 ↔ 槽位序号的
+  翻译在编辑器桥侧归属映射表完成（mp_debug.dbg_target），游戏侧不见玩家号。**
 - 回执协议现状无 `from` 字段；编辑器侧 ui_loop 按 id 单配对（ui_loop.lua:34-38），
   多人下同 id 多答会互相覆盖——**0.8.7 要改的寻址缺口实锤**。
 - **暂停语义**：`sceneMgr:disconnect_game_in_editor(slot)` 后该 VM **停止应答**

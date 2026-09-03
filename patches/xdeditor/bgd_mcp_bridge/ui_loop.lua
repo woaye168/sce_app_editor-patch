@@ -8,13 +8,16 @@
 -- 0.8.7 多人寻址：lua.* 全命令加 player 参数（缺省 = 多人局 1 号玩家/单人局唯一玩家；
 -- 单人局带 player 回退 + note 告知）；多人局恒带 target 定向，回执按 from==target 配对，
 -- 收到无 from 的应答 = 对端旧框架 → 响亮报错引导升级（不静默退化）。
+-- 注意：协议 target/from 是 PIE 槽位序号（GamePlayInEditor<N> 的 N），不是数编玩家号——
+-- 游戏侧 get_slot_id() 实测返回槽位序号；玩家号→槽位序号翻译在 mp_debug.dbg_target 完成。
 -- 编辑器侧 UI（base.ui 持久树）直接在本 VM 查询（find_ui scope=editor）。
 -- 机制底档：doc/research/ui-reflection.md + lua-vm-bus.md + multi-player-debug.md
 
 local M = {}
 
 ---注册 UI 闭环 handlers。ctx: { send_ack, deferred, logi, is_debugging, dbg_target }
----dbg_target(player) → target(number|nil), note(string|nil), err(string|nil)（0.8.7 多人寻址）
+---dbg_target(player) → slot_index(number|nil), player_no(number|nil), note(string|nil), err(string|nil)
+---（0.8.7 多人寻址：slot_index=协议 target；player_no 仅用于超时文案）
 ---@return table<string, function> handlers（挂到 main.lua 的 handlers 表）
 function M.setup(ctx)
     local send_ack = ctx.send_ack
@@ -28,7 +31,7 @@ function M.setup(ctx)
     local dbg_bus_ready = type(dbg_lobby) == 'table'
         and type(dbg_lobby.send_luastate_broadcast) == 'function'
         and type(dbg_lobby.register_luaState_event) == 'function'
-    local dbg_pending = {} -- 游戏侧请求 id -> { ack=桥请求id, target=玩家号|nil, note=告知|nil }
+    local dbg_pending = {} -- 游戏侧请求 id -> { ack=桥请求id, target=槽位序号|nil, player=玩家号|nil, note=告知|nil }
     local dbg_next_id = 0
 
     local function dbg_on_result(data)
@@ -91,9 +94,9 @@ function M.setup(ctx)
         if not ctx.is_debugging() then
             error('游戏未在调试，请先 start_debug')
         end
-        local target, note, terr
+        local target, player_no, note, terr
         if ctx.dbg_target then
-            target, note, terr = ctx.dbg_target(args.player)
+            target, player_no, note, terr = ctx.dbg_target(args.player)
             if terr then
                 error(terr)
             end
@@ -110,20 +113,21 @@ function M.setup(ctx)
         end
         dbg_next_id = dbg_next_id + 1
         local req_id = tostring(dbg_next_id)
-        dbg_pending[req_id] = { ack = ack_id, target = target, note = note }
+        dbg_pending[req_id] = { ack = ack_id, target = target, player = player_no, note = note }
         pcall(base.wait, 3000, function()
             local pend = dbg_pending[req_id]
             if pend then
                 dbg_pending[req_id] = nil
-                -- 超时文案统一含暂停恢复引导（暂停 VM 不应答 dbg 命令，实测）
-                local hint = pend.target
+                -- 超时文案统一含暂停恢复引导（暂停 VM 不应答 dbg 命令，实测）；
+                -- 文案用数编玩家号（对外概念），不是协议用的槽位序号
+                local hint = pend.player
                     and ('无响应（dbg_bus 未就绪？或目标玩家已暂停——可 lua.set_pause{player='
-                        .. tostring(pend.target) .. ', paused=false} 恢复；或游戏侧框架需更新：update-framework + build + restart_last_debug）')
+                        .. tostring(pend.player) .. ', paused=false} 恢复；或游戏侧框架需更新：update-framework + build + restart_last_debug）')
                     or '无响应（dbg_bus 未就绪？或目标玩家已暂停——可 lua.set_pause{player=N, paused=false} 恢复；或游戏侧框架需更新：update-framework + build + restart_last_debug）'
                 send_ack(ack_id, false, '游戏侧' .. hint)
             end
         end)
-        -- 多人局恒带 target + proto=2；单人局不带 target（协议字节级兼容旧游戏框架）
+        -- 多人局恒带 target（槽位序号）+ proto=2；单人局不带 target（协议字节级兼容旧游戏框架）
         local payload = { id = req_id, cmd = cmd, args = args }
         if target ~= nil then
             payload.target = target

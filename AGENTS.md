@@ -102,3 +102,7 @@ git tag v0.x.0 && git push origin v0.x.0   # CI 注入版本号 → 构建 → �
 ## 提交规范
 
 Conventional Commits：`feat: / fix: / docs: / ci: / refactor: / chore:` 前缀（Release notes 依赖）。
+
+## AI 工具纪律（Trae）
+
+- **同一文件的多个编辑必须串行**：SearchReplace 并行编辑同一文件存在 read-modify-write 竞态——各调用均报成功，实际互相覆盖静默丢编辑（甚至新旧文本交织）。一条消息对同一文件只发一个编辑；不同文件才可并行；批量编辑后复读关键区域复核落盘。

@@ -72,6 +72,11 @@ pub fn imbalance_hint() -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    /// 计数器是进程级共享静态量，而 cargo test 默认多线程跑——
+    /// 两个测试必须用互斥串行，否则 force_set 清零会打断对方的累加断言
+    /// （0.8.10 CI failure 实证：test_count_classification 在并发下 eval_ops 读到 0）
+    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// 测试专用：强制设定计数（计数器进程级共享，测试需确定性初值）
     fn force_set(c: u64, u: u64, e: u64) {
         CAPTURES.store(c, Ordering::Relaxed);
@@ -81,6 +86,7 @@ mod tests {
 
     #[test]
     fn test_imbalance_threshold() {
+        let _g = TEST_LOCK.lock().unwrap();
         // 未达阈值：eval<5 / 有截图 / eval 占比不高 —— 均不提醒
         force_set(0, 0, 4);
         assert!(imbalance_hint().is_none());
@@ -99,6 +105,7 @@ mod tests {
 
     #[test]
     fn test_count_classification() {
+        let _g = TEST_LOCK.lock().unwrap();
         force_set(0, 0, 0);
         count_invoke("lua.eval");
         count_invoke("lua.tap");

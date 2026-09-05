@@ -419,6 +419,8 @@ static class CatalogGenerator
             [Param("id", "string", true, null, "控件 id（真实悬停保持态：虚拟指针驻留，每帧覆写 hover+enter/leave 沿，直到其他虚拟指针命令接管；验证 tooltip/hover 样式配 capture_game crop 判读）"), PlayerParam()]);
         yield return Entry("lua.eval", "lua", "eval", "object", "danger",
             [Param("code", "string", true, null, "游戏 VM（StateGame）内 pcall 执行任意 Lua 代码（游戏侧逃生舱，编辑器侧用 lua.run_lua）"), PlayerParam()]);
+        yield return Entry("lua.server_eval", "lua", "server_eval", "object", "danger",
+            [Param("code", "string", true, null, "服务端 VM 内 pcall 执行任意 Lua 代码（0.8.10 R6 服务端状态通道：客户端 dbg_bus 转发→服务端 dbg handler 仅 PIE 调试局注册；读服务端权威数据/调物品；require('libs.xxx'/'src.xxx') 源码形态直写）"), PlayerParam()]);
         yield return Entry("lua.drag_ui", "lua", "drag_ui", "object",
             "write",
             [

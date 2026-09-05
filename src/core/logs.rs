@@ -26,20 +26,24 @@ pub fn to_slash(path: &Path) -> String {
 /// 获取游戏日志（离线可用；默认只返回文件路径与信息，tail_lines>0 才带内容）。
 /// source 取值：具体 key（见 LOG_SOURCES）/ 动态聚合前缀（如 bridge 命中全部 bridge_*）/
 /// all / 缺省 game（命中 game_client + game_server）。
-/// match_pattern（0.8.0 R3）：正则过滤命中行（同条收纳+计数）+ errors 段自动上浮；
-/// 与 tail_lines 可同时用（互补不互斥）。
+/// match_pattern（0.8.0 R3）：正则过滤命中行（同条收纳+计数）+ errors/warns 段自动上浮；
+/// 与 tail_lines 可同时用（互补不互斥）。ignore_case（0.8.10 FR-02）：match 不区分大小写。
 pub fn get_game_logs(
     project_root: &Path,
     source: &str,
     tail_lines: usize,
     match_pattern: Option<&str>,
+    ignore_case: bool,
 ) -> Result<Value, String> {
     let target = locate::locate(project_root)?;
     let logs_root = target.engine_root()?.join("logs");
 
     let match_re = match match_pattern {
         Some(p) if !p.trim().is_empty() => Some(
-            regex::Regex::new(p).map_err(|e| format!("match 正则无效（{e}），请修正后重试"))?,
+            regex::RegexBuilder::new(p)
+                .case_insensitive(ignore_case)
+                .build()
+                .map_err(|e| format!("match 正则无效（{e}），请修正后重试"))?,
         ),
         _ => None,
     };
@@ -176,12 +180,38 @@ impl Bucket {
 
 const MATCH_CAP: usize = 100;
 const ERROR_CAP: usize = 20;
+const WARN_CAP: usize = 10;
+
+/// 共享级别正则（文件日志与 tee/增量摘要共用）：错误行 / 警告行 / 前缀剥离
+fn error_re() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?i)\[error\]").unwrap())
+}
+fn warn_re() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"(?i)\[(?:warning|warn)\]").unwrap())
+}
+/// 同条比对键：剥离行首 [时间][pid] 前缀与 [级别] 后的 [序号]（真机日志四组括号
+/// [time][pid][level][seq]，seq 逐条递增不去掉会导致刷屏行收纳失败——00_49 真机实测）。
+/// 级别括号保留在键内（$1 回填），同文的 info/error 不混淆。
+fn prefix_re() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| {
+        regex::Regex::new(
+            r"(?x)^\[[^\]]{0,64}\]\[[^\]]{0,16}\]\s*
+            ((?i)\[(?:info|error|warning|warn|debug|fatal)\])?(\[\d{1,12}\])?\s*",
+        )
+        .unwrap()
+    })
+}
 
 /// 日志行扫描（0.8.0 易用性增强）：
 /// - match 命中行：同条收纳（剥离行首 [时间][pid] 前缀后比对，同一条只回最近一次 + ×N 计数），
 ///   防刷屏行灌爆上下文，同时保留「发生了几次」的排障关键信息；
 /// - errors 段：无论 match 是否给出，错误行（[error]/[ERROR]）都单独收纳上浮——
 ///   前置改动引发的错误会让目标逻辑根本没执行到（假阳性/假阴性），只看 match 命中会漏判。
+/// - warns 段（0.8.10 FR-02）：警告行（[warning]/[warn]）同构上浮——warn 级异状
+///   （如 protocol duplicate register=探针覆盖游戏 handler）不在 errors 段，曾因此漏看。
 /// 行格式："行号: 原文"，重复行附 " (×N)"。
 fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value) {
     use std::io::{BufRead, BufReader};
@@ -189,18 +219,10 @@ fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value
     let Ok(f) = std::fs::File::open(path) else {
         return;
     };
-    let error_re = regex::Regex::new(r"(?i)\[error\]").unwrap();
-    // 同条比对键：剥离行首 [时间][pid] 前缀与 [级别] 后的 [序号]（真机日志四组括号
-    // [time][pid][level][seq]，seq 逐条递增不去掉会导致刷屏行收纳失败——00_49 真机实测）。
-    // 级别括号保留在键内（$1 回填），同文的 info/error 不混淆。
-    let prefix_re = regex::Regex::new(
-        r"(?x)^\[[^\]]{0,64}\]\[[^\]]{0,16}\]\s*
-        ((?i)\[(?:info|error|warning|warn|debug|fatal)\])?(\[\d{1,12}\])?\s*",
-    )
-    .unwrap();
 
     let mut hits = Bucket::new();
     let mut errors = Bucket::new();
+    let mut warns = Bucket::new();
     let mut reader = BufReader::with_capacity(256 * 1024, f);
     let mut buf = Vec::new();
     let mut lineno = 0usize;
@@ -215,13 +237,17 @@ fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value
                 if let Some(re) = match_re {
                     if re.is_match(line) {
                         // $1 回填级别括号（保留在键内），时间/pid/序号剥离
-                        let key = prefix_re.replace(line, "$1").into_owned();
+                        let key = prefix_re().replace(line, "$1").into_owned();
                         hits.push(lineno, key, line);
                     }
                 }
-                if error_re.is_match(line) {
-                    let key = prefix_re.replace(line, "$1").into_owned();
+                if error_re().is_match(line) {
+                    let key = prefix_re().replace(line, "$1").into_owned();
                     errors.push(lineno, key, line);
+                }
+                if warn_re().is_match(line) {
+                    let key = prefix_re().replace(line, "$1").into_owned();
+                    warns.push(lineno, key, line);
                 }
             }
             Err(_) => break,
@@ -242,6 +268,14 @@ fn scan_log_lines(path: &Path, match_re: Option<&regex::Regex>, info: &mut Value
     let (lines, distinct, truncated) = errors.render(ERROR_CAP);
     info["errors"] = json!({
         "total": errors.raw_total,
+        "distinct": distinct,
+        "returned": lines.len(),
+        "truncated": truncated,
+        "lines": lines,
+    });
+    let (lines, distinct, truncated) = warns.render(WARN_CAP);
+    info["warns"] = json!({
+        "total": warns.raw_total,
         "distinct": distinct,
         "returned": lines.len(),
         "truncated": truncated,
@@ -325,6 +359,7 @@ pub fn get_game_logs_tee(
     tail_lines: usize,
     match_pattern: Option<&str>,
     clear: bool,
+    ignore_case: bool,
 ) -> Result<Value, String> {
     use super::bridge_client;
     let target = locate::locate(project_root)?;
@@ -343,7 +378,10 @@ pub fn get_game_logs_tee(
 
     let match_re = match match_pattern {
         Some(p) if !p.trim().is_empty() => Some(
-            regex::Regex::new(p).map_err(|e| format!("match 正则无效（{e}），请修正后重试"))?,
+            regex::RegexBuilder::new(p)
+                .case_insensitive(ignore_case)
+                .build()
+                .map_err(|e| format!("match 正则无效（{e}），请修正后重试"))?,
         ),
         _ => None,
     };
@@ -358,6 +396,7 @@ pub fn get_game_logs_tee(
     let total = res.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
     let mut hits = Bucket::new();
     let mut errors = Bucket::new();
+    let mut warns = Bucket::new();
     let mut display: Vec<String> = Vec::with_capacity(lines.len());
     for (i, l) in lines.iter().enumerate() {
         let ty = l.get("type").and_then(|v| v.as_str()).unwrap_or("信息");
@@ -377,9 +416,12 @@ pub fn get_game_logs_tee(
                 hits.push(i + 1, key.clone(), &line);
             }
         }
-        // 面板管线已把级别映射为中文（错误/信息/警告），errors 段按「错误」上浮
+        // 面板管线已把级别映射为中文（错误/信息/警告），errors/warns 段按级别上浮（0.8.10 FR-02）
         if ty == "错误" {
-            errors.push(i + 1, key, &line);
+            errors.push(i + 1, key.clone(), &line);
+        }
+        if ty == "警告" {
+            warns.push(i + 1, key, &line);
         }
         display.push(line);
     }
@@ -409,6 +451,14 @@ pub fn get_game_logs_tee(
         "truncated": truncated,
         "lines": ls,
     });
+    let (ls, distinct, truncated) = warns.render(WARN_CAP);
+    info["warns"] = json!({
+        "total": warns.raw_total,
+        "distinct": distinct,
+        "returned": ls.len(),
+        "truncated": truncated,
+        "lines": ls,
+    });
     if tail_lines > 0 {
         let tail: Vec<&String> = display.iter().rev().take(tail_lines).rev().collect();
         info["tail"] = Value::String(
@@ -416,6 +466,121 @@ pub fn get_game_logs_tee(
         );
     }
     Ok(info)
+}
+
+// ---------------------------------------------------------------- 0.8.10 场景日志增量摘要（R2）
+
+/// 场景日志快照：记录 game_client/game_server 最新文件路径与行数，供场景结束时对比
+/// 「期间新增了什么」。离线可用、永不失败（定位失败回空表，摘要侧自然降级）。
+pub fn snapshot_game_logs(project_root: &Path) -> Value {
+    let mut out = serde_json::Map::new();
+    if let Ok(target) = locate::locate(project_root) {
+        if let Ok(root) = target.engine_root() {
+            let logs_root = root.join("logs");
+            for (key, sub, prefix, _) in LOG_SOURCES
+                .iter()
+                .filter(|(k, ..)| *k == "game_client" || *k == "game_server")
+            {
+                if let Some(p) = latest_file(&logs_root.join(sub), prefix) {
+                    out.insert(
+                        key.to_string(),
+                        json!({ "path": to_slash(&p), "lines": count_lines(&p).unwrap_or(0) }),
+                    );
+                }
+            }
+        }
+    }
+    Value::Object(out)
+}
+
+/// 场景日志增量摘要：对比快照统计期间新增行数 / errors / warnings / top 重复行
+/// （同条收纳取次数最高者）——刷屏类问题（BUG-04 型：非 error 级，errors 段看不见）
+/// 靠 top_repeats 天然暴露。文件轮换（路径变了）按全文件统计。
+pub fn summarize_log_delta(project_root: &Path, start: &Value) -> Value {
+    use std::io::{BufRead, BufReader};
+    let mut out = serde_json::Map::new();
+    let Ok(target) = locate::locate(project_root) else {
+        return json!({ "note": "项目定位失败，无法生成日志摘要" });
+    };
+    let Ok(root) = target.engine_root() else {
+        return json!({ "note": "引擎根定位失败，无法生成日志摘要" });
+    };
+    let logs_root = root.join("logs");
+    for (key, sub, prefix, desc) in LOG_SOURCES
+        .iter()
+        .filter(|(k, ..)| *k == "game_client" || *k == "game_server")
+    {
+        let Some(p) = latest_file(&logs_root.join(sub), prefix) else {
+            continue;
+        };
+        let path = to_slash(&p);
+        // 同一文件 → 跳过快照时点前的旧行；文件已轮换 → 从 0 计
+        let skip = start
+            .get(key)
+            .filter(|s| s.get("path").and_then(|v| v.as_str()) == Some(path.as_str()))
+            .and_then(|s| s.get("lines"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize;
+
+        let mut new_lines = 0usize;
+        let mut errors = Bucket::new();
+        let mut warns = Bucket::new();
+        let mut repeats = Bucket::new();
+        if let Ok(f) = std::fs::File::open(&p) {
+            let mut reader = BufReader::with_capacity(256 * 1024, f);
+            let mut buf = Vec::new();
+            let mut lineno = 0usize;
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        lineno += 1;
+                        if lineno <= skip {
+                            continue;
+                        }
+                        new_lines += 1;
+                        let line = String::from_utf8_lossy(&buf);
+                        let line = line.trim_end();
+                        let key = prefix_re().replace(line, "$1").into_owned();
+                        if error_re().is_match(line) {
+                            errors.push(lineno, key.clone(), line);
+                        }
+                        if warn_re().is_match(line) {
+                            warns.push(lineno, key.clone(), line);
+                        }
+                        repeats.push(lineno, key, line);
+                    }
+                    Err(_) => break,
+                }
+            }
+        }
+        // top 重复行：按次数降序取前 3（仅重复 >1 次的；BUG-04 型刷屏在这里现形）
+        let mut tops: Vec<(&String, &(usize, usize, String))> = repeats.map.iter().collect();
+        tops.sort_by_key(|(_, (n, _, _))| std::cmp::Reverse(*n));
+        let top_repeats: Vec<Value> = tops
+            .into_iter()
+            .filter(|(_, (n, _, _))| *n > 1)
+            .take(3)
+            .map(|(_, (n, _, line))| json!({ "count": n, "line": line }))
+            .collect();
+        let (err_lines, _, _) = errors.render(5);
+        let (warn_lines, _, _) = warns.render(5);
+        out.insert(
+            key.to_string(),
+            json!({
+                "desc": desc,
+                "path": path,
+                "new_lines": new_lines,
+                "errors": errors.raw_total,
+                "error_lines": err_lines,
+                "warnings": warns.raw_total,
+                "warn_lines": warn_lines,
+                "top_repeats": top_repeats,
+            }),
+        );
+    }
+    Value::Object(out)
 }
 
 #[cfg(test)]

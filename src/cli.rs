@@ -121,7 +121,7 @@ pub fn run(args: &[String]) -> i32 {
             }
             let source = positional.first().map(|s| s.as_str()).unwrap_or("");
             let tail: usize = positional.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-            resolve_project(rest).and_then(|p| editor::get_game_logs(&p, &source, tail, None))
+            resolve_project(rest).and_then(|p| editor::get_game_logs(&p, &source, tail, None, false))
         }
         "capture" => {
             let ratio: f64 = parse_flag(rest, "--ratio")

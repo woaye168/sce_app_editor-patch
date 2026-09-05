@@ -1,16 +1,25 @@
-//! 场景脚本执行器（0.8.0）：AI 写完功能后把「起调试 → 操作 UI → 验证」编成步骤数组一次跑完，
-//! 替代十几次单步 MCP 往返。0.8.2 进化：步骤变量 / 轮询等待 / 断言。
+//! 场景脚本执行器（0.8.0）：把「起调试 → 操作 UI → 验证」编成步骤数组一次跑完。
+//! 0.8.2 进化：步骤变量 / 轮询等待 / 断言。0.8.10 进化：取证三段式步骤 + 结束日志摘要。
+//!
+//! 定位（0.8.10 实测修正）：适合**定稿后归档复跑**（一把跑完已验证的路径）；
+//! 探索期排错用单步命令逐段迭代更快（复杂场景脚本反而难定位失败点）。
 //!
 //! 步骤 op：
 //!   invoke      { id: <能力id>, args?, timeout_ms? }  调桥能力（lua.* 等）
 //!   start_debug / stop_debug {}                       调试启停（默认 restart_last_debug）
 //!   capture     { ratio?, crop?, max_width? }         截图（返回 png 路径）
-//!   capture_ui  { q, pad?, max_width? }               复合：find_ui(q) 拿 rect → 局部截图一步完成
-//!   logs        { source?, tail_lines?, match? }      读日志（含 errors 上浮）
+//!   capture_ui  { q, scope?, tag?, pad?, max_width? } 复合：find_ui(q) 拿 rect → 局部截图一步完成
+//!   verify_ui   { q, scope?, tag?, pad?, max_width? } 取证：UI 存在性断言 + 局部截图一步（0.8.10）
+//!   logs        { source?, tail_lines?, match?, ignore_case? }  读日志（含 errors/warns 上浮）
+//!   check_logs  { source?, match?, errors_zero?, ignore_case? } 取证：查日志 + errors 必须为 0 断言（默认开，0.8.10）
 //!   wait        { ms }                                等待（界面动画/协议往返）
 //!   note        { text }                              标记注释（对齐结果与步骤）
-//!   wait_for    { q|id, present?, timeout_ms? }       轮询 find_ui 直到文本/控件出现或消失
-//!   assert_text { q, present? }                       断言文本存在（包含匹配，失败=步骤失败）
+//!   wait_for    { q|id, present?, timeout_ms?, scope?, tag? }   轮询 find_ui 直到文本/控件出现或消失
+//!   assert_text { q, present?, scope?, tag? }         断言文本存在（包含匹配，失败=步骤失败）
+//!
+//! 场景结束自动附件（0.8.10 R2）：log_summary = 期间日志摘要（game_client/game_server
+//! 新增行数/errors/warnings/top 重复行）——刷屏类问题天然暴露；evidence = 本会话取证
+//! 计数（captures/ui_ops/eval_ops，失衡附 hint）。
 //!
 //! 步骤变量（0.8.2）：任意步骤可带 save_as: "名"——存结果标量（默认取 clickable_ancestor
 //! 或 id 或 items[0] 同名字段；save_field: "字段" 指定其他标量）；后续步骤任意字符串字段
@@ -61,10 +70,14 @@ fn subst_vars(v: &Value, vars: &Vars) -> Result<Value> {
             // 整串占位符：保类型替换
             if let Some(name) = s.strip_prefix("{$").and_then(|x| x.strip_suffix('}')) {
                 if !name.is_empty() && !name.contains('$') {
-                    return vars
-                        .get(name)
-                        .cloned()
-                        .ok_or_else(|| anyhow!("变量未定义：${}（先在前置 find/invoke 步骤 save_as）", name));
+                    return vars.get(name).cloned().ok_or_else(|| {
+                        // FR-10：列出已定义变量，防「上一步 save_as 失败/名写错」时无从排查
+                        anyhow!(
+                            "变量未定义：${}（已定义：[{}]；先在前置 find/invoke 步骤 save_as）",
+                            name,
+                            vars.keys().cloned().collect::<Vec<_>>().join(", ")
+                        )
+                    });
                 }
             }
             // 串内插值（替换后从插入值之后继续扫——变量值本身含 {$ 模式
@@ -125,9 +138,21 @@ fn extract_save(result: &Value, save_field: Option<&str>) -> Result<Value> {
     match v {
         Some(v @ (Value::String(_) | Value::Number(_) | Value::Bool(_))) => Ok(v),
         Some(_) => Err(anyhow!("save_as 只存标量（id/文本/数值），取到的是复合值")),
-        None => Err(anyhow!(
-            "save_as 无可存字段（结果无 clickable_ancestor/id/items[0]；或用 save_field 指定）"
-        )),
+        None => {
+            // FR-10：报错列出可取字段（顶层 + items[0]），指明 save_field 修正路径
+            let top: Vec<&str> = result.as_object().map(|o| o.keys().map(|k| k.as_str()).collect()).unwrap_or_default();
+            let item0: Vec<&str> = result
+                .get("items")
+                .and_then(|a| a.get(0))
+                .and_then(|i| i.as_object())
+                .map(|o| o.keys().map(|k| k.as_str()).collect())
+                .unwrap_or_default();
+            Err(anyhow!(
+                "save_as 无可存标量字段（顶层字段：[{}]；items[0] 字段：[{}]；用 save_field 指定其一）",
+                top.join(", "),
+                item0.join(", ")
+            ))
+        }
     }
 }
 
@@ -139,14 +164,23 @@ fn step_capture_ui(project: &std::path::Path, step: &Value, player: Option<i64>)
     let q = step
         .get("q")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow!("capture_ui 步骤缺 q（文本/id 子串，与 find_ui 同语义）"))?;
+        .ok_or_else(|| anyhow!("capture_ui/verify_ui 步骤缺 q（文本/id 子串，与 find_ui 同语义）"))?;
     let pad = step.get("pad").and_then(|v| v.as_f64()).unwrap_or(8.0);
     let max_width = crate::mcp::parse_max_width(step, 640)?;
     let port = crate::mcp::require_online_pub(project)?;
-    let find_args = match player {
-        Some(p) => json!({ "q": q, "player": p }),
-        None => json!({ "q": q }),
-    };
+    // 0.8.10：scope（页名前缀）/tag（语义标记）透传 find_ui，与 lua.find_ui 参数对齐
+    let mut find_args = json!({ "q": q });
+    if let Some(o) = find_args.as_object_mut() {
+        if let Some(p) = player {
+            o.insert("player".into(), json!(p));
+        }
+        if let Some(s) = step.get("scope") {
+            o.insert("scope".into(), s.clone());
+        }
+        if let Some(t) = step.get("tag") {
+            o.insert("tag".into(), t.clone());
+        }
+    }
     let res = bridge_client::bridge_invoke(port, "lua.find_ui", find_args, 10_000)?;
     let item = res
         .get("items")
@@ -194,6 +228,8 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
     let mut results: Vec<Value> = Vec::new();
     let mut failed_step = Value::Null;
     let mut vars: Vars = Vars::new();
+    // 0.8.10 R2：开场日志快照——场景结束附「期间日志摘要」（新增行数/errors/warnings/top 重复行）
+    let log_snap = logs::snapshot_game_logs(&project);
 
     for (i, step_raw) in steps.iter().enumerate() {
         // 步骤变量替换（在 op 解析前，全字段生效）
@@ -209,7 +245,10 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
             }
         };
         let op = step.get("op").and_then(|v| v.as_str()).unwrap_or("");
-        let r: Result<Value> = match op {
+        // 0.8.10：整个 op 分发包进立即调用闭包——各分支内 ? 只落到本步 Result，
+        // 步骤级错误（缺参数/桥暂不可用/未命中）记 failed_step 而非让整个场景崩出（丢掉 log_summary）
+        let r: Result<Value> = (|| -> Result<Value> {
+            match op {
             "invoke" => {
                 let id = step
                     .get("id")
@@ -225,6 +264,8 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                 if let (Some(p), Some(o)) = (step_player(&step), invoke_args.as_object_mut()) {
                     o.entry("player").or_insert(json!(p));
                 }
+                // 0.8.10 R3：证据计数（lua.eval → eval_ops；UI 操作族 → ui_ops）
+                crate::core::evidence::count_invoke(id);
                 bridge_client::bridge_invoke(port, id, invoke_args, timeout)
             }
             "start_debug" => {
@@ -251,24 +292,94 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                 });
                 let max_width = crate::mcp::parse_max_width(&step, 1280)?;
                 let restore = step.get("restore").and_then(|v| v.as_bool()).unwrap_or(true);
+                crate::core::evidence::count_capture();
                 capture::capture_game_mcp(&project, ratio, crop, max_width, step_player(&step), restore, 200)
             }
-            "capture_ui" => step_capture_ui(&project, &step, step_player(&step)),
+            "capture_ui" => {
+                crate::core::evidence::count_capture();
+                step_capture_ui(&project, &step, step_player(&step))
+            }
+            // 0.8.10 R2 取证三段式之「UI 存在且长这样」：存在性断言 + 局部截图一步完成
+            "verify_ui" => {
+                crate::core::evidence::count_capture();
+                // 注意：步骤错误必须作为本步 Result 返回（不能用 ? 传播——那会让整个场景崩出）
+                match step_capture_ui(&project, &step, step_player(&step)) {
+                    Ok(mut out) => {
+                        out["verified"] = json!(true);
+                        Ok(out)
+                    }
+                    Err(e) => Err(e),
+                }
+            }
             "logs" => {
                 let tail = step
                     .get("tail_lines")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as usize;
                 let m = step.get("match").and_then(|v| v.as_str());
+                let icase = step.get("ignore_case").and_then(|v| v.as_bool()).unwrap_or(false);
                 // 0.8.7：player 给定 → 在线 tee 通道（分玩家客户端日志）
                 if let Some(p) = step_player(&step) {
                     let clear = step.get("clear").and_then(|v| v.as_bool()).unwrap_or(false);
-                    logs::get_game_logs_tee(&project, p, tail, m, clear).map_err(|e| anyhow!(e))
+                    logs::get_game_logs_tee(&project, p, tail, m, clear, icase).map_err(|e| anyhow!(e))
                 } else {
                     let source = step.get("source").and_then(|v| v.as_str()).unwrap_or("");
-                    logs::get_game_logs(&project, source, tail, m).map_err(|e| anyhow!(e))
+                    logs::get_game_logs(&project, source, tail, m, icase).map_err(|e| anyhow!(e))
                 }
             }
+            // 0.8.10 R2 取证三段式之「日志健康」：查日志 + errors 必须为 0 断言（errors_zero 默认开）
+            // 立即调用闭包：内部 ? 只落到本步 Result（步骤错误不得传播成整个场景崩出）
+            "check_logs" => (|| -> Result<Value> {
+                let m = step.get("match").and_then(|v| v.as_str());
+                let errors_zero = step.get("errors_zero").and_then(|v| v.as_bool()).unwrap_or(true);
+                let icase = step.get("ignore_case").and_then(|v| v.as_bool()).unwrap_or(false);
+                let tail = step
+                    .get("tail_lines")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
+                // errors/warns 段需扫描触发（match 或 tail>0）：保底 tail_lines=1
+                let tail_scan = tail.max(1);
+                let info = if let Some(p) = step_player(&step) {
+                    logs::get_game_logs_tee(&project, p, tail_scan, m, false, icase)
+                        .map_err(|e| anyhow!(e))?
+                } else {
+                    let source = step.get("source").and_then(|v| v.as_str()).unwrap_or("");
+                    logs::get_game_logs(&project, source, tail_scan, m, icase)
+                        .map_err(|e| anyhow!(e))?
+                };
+                if errors_zero {
+                    // 文件型：logs.<key>.errors.total；tee 型：顶层 errors.total
+                    let mut offenders: Vec<String> = Vec::new();
+                    if let Some(logs_obj) = info.get("logs").and_then(|v| v.as_object()) {
+                        for (k, v) in logs_obj {
+                            let n = v
+                                .get("errors")
+                                .and_then(|e| e.get("total"))
+                                .and_then(|t| t.as_u64())
+                                .unwrap_or(0);
+                            if n > 0 {
+                                offenders.push(format!("{k}(errors={n})"));
+                            }
+                        }
+                    } else {
+                        let n = info
+                            .get("errors")
+                            .and_then(|e| e.get("total"))
+                            .and_then(|t| t.as_u64())
+                            .unwrap_or(0);
+                        if n > 0 {
+                            offenders.push(format!("tee(errors={n})"));
+                        }
+                    }
+                    if !offenders.is_empty() {
+                        return Err(anyhow!(
+                            "check_logs 断言失败：errors 段非零——{}（errors.lines 有定位行号；历史残留错误可 stop_debug 后重跑或显式 errors_zero=false）",
+                            offenders.join(", ")
+                        ));
+                    }
+                }
+                Ok(info)
+            })(),
             "wait" => {
                 let ms = step.get("ms").and_then(|v| v.as_u64()).unwrap_or(500).min(60_000);
                 std::thread::sleep(std::time::Duration::from_millis(ms));
@@ -290,11 +401,19 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                 };
                 let port = crate::mcp::require_online_pub(&project)?;
                 let start = std::time::Instant::now();
-                // 0.8.7：player 定向到对应玩家客户端查询
-                let find_args = match step_player(&step) {
-                    Some(p) => json!({ "q": q, "player": p }),
-                    None => json!({ "q": q }),
-                };
+                // 0.8.7：player 定向到对应玩家客户端查询；0.8.10：scope/tag 透传 find_ui
+                let mut find_args = json!({ "q": q });
+                if let Some(o) = find_args.as_object_mut() {
+                    if let Some(p) = step_player(&step) {
+                        o.insert("player".into(), json!(p));
+                    }
+                    if let Some(s) = step.get("scope") {
+                        o.insert("scope".into(), s.clone());
+                    }
+                    if let Some(t) = step.get("tag") {
+                        o.insert("tag".into(), t.clone());
+                    }
+                }
                 loop {
                     // 桥暂时不可用/单次超时（PIE 重启窗口期）视为「本轮未命中」继续
                     // 轮询到 timeout——wait_for 的核心场景正是等界面在重启后出现；
@@ -332,8 +451,18 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
                     std::thread::sleep(std::time::Duration::from_millis(200));
                 }
             }
-            _ => Err(anyhow!("未知 op: '{op}'（可用：invoke/start_debug/stop_debug/capture/capture_ui/logs/wait/note/wait_for/assert_text）")),
-        };
+            // FR-05：缺 op 与写错 op 分开报——缺 op 指出根因（最常见：忘了写 op 字段）
+            _ => Err(if op.is_empty() {
+                anyhow!(
+                    "步骤缺 op 字段（op: invoke/start_debug/stop_debug/capture/capture_ui/verify_ui/logs/check_logs/wait/note/wait_for/assert_text）"
+                )
+            } else {
+                anyhow!(
+                    "未知 op: '{op}'（可用：invoke/start_debug/stop_debug/capture/capture_ui/verify_ui/logs/check_logs/wait/note/wait_for/assert_text）"
+                )
+            }),
+            }
+        })();
         match r {
             Ok(v) => {
                 // save_as 存变量（失败=步骤失败）
@@ -364,11 +493,20 @@ pub fn run_scenario(args: &Value) -> Result<Value> {
         }
     }
 
+    // 0.8.10 R2/R3：场景结束自动附件——期间日志摘要（刷屏类问题天然暴露）+ 取证计数
+    let log_summary = logs::summarize_log_delta(&project, &log_snap);
+    let evidence = crate::core::evidence::snapshot();
+    let imbalance = crate::core::evidence::imbalance_hint();
     Ok(json!({
         "results": results,
         "failed_step": failed_step,
         "elapsed_ms": t0.elapsed().as_millis(),
-        "hint": "步骤全部成功=绿；failed_step 非空先看该步 error 与最近 logs(errors 段)。截图步骤返回 path 用 Read 查看；变量用 save_as/{$名} 串联 find→click",
+        "log_summary": log_summary,
+        "evidence": evidence,
+        "hint": match imbalance {
+            Some(h) => format!("步骤全部成功=绿；failed_step 非空先看该步 error 与 log_summary（errors/warnings/top_repeats）。截图步骤返回 path 用视觉通道读图；变量用 save_as/{{$名}} 串联 find→click。⚠ {h}"),
+            None => "步骤全部成功=绿；failed_step 非空先看该步 error 与 log_summary（errors/warnings/top_repeats）。截图步骤返回 path 用视觉通道读图；变量用 save_as/{$名} 串联 find→click".to_string(),
+        },
     }))
 }
 

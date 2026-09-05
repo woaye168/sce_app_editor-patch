@@ -67,7 +67,7 @@ rewrite.rs 曾写死前缀导致「设置里改了构建目标后模块改写跟
 
 ```
 bgd_sce_tools（规则唯一所有者：内建默认 + 设置界面编辑 → bgd.json overlay）
-   │ build 时：rewrite/res/clean 消费规则；并盖戳生成 .bgd/src/client/path_rules.lua
+   │ build 时：rewrite/res/clean 消费规则；并盖戳生成 .bgd/src/common/path_rules.lua
    │（_G.bgd_path_rules 全局表：map / modules 前缀对照 / res 前缀对照，全部解析后终值；
    │  文件经 rewrite_excludes 保护不被构建替换损坏）
 框架入口 libs/entrance/client.lua 顶部 pcall require（entrance 合并机制 → ui/src/main.lua 最前段，

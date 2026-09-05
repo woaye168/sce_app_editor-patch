@@ -81,19 +81,21 @@ fn tool_get_game_logs(args: &Value) -> Result<Value> {
     // 0.5.6：参数仅 source/tail_lines；项目走自动解析链（最近项目，失败明确报错）
     // 0.8.0 R1.3：新增 match 正则过滤（与 tail_lines 同时给出时 match 优先）
     // 0.8.7：player 给定 → 在线 tee 通道（分玩家客户端日志；文件型管线一字不动）
+    // 0.8.10 FR-02：warns 段上浮（[warning]/[warn]）；ignore_case 控制 match 大小写（默认区分）
     let project = resolve_project(None)?;
     let tail = args
         .get("tail_lines")
         .and_then(|v| v.as_u64())
         .unwrap_or(0) as usize;
     let match_pat = args.get("match").and_then(|v| v.as_str());
+    let ignore_case = args.get("ignore_case").and_then(|v| v.as_bool()).unwrap_or(false);
     if let Some(player) = args.get("player").and_then(|v| v.as_i64()) {
         let clear = args.get("clear").and_then(|v| v.as_bool()).unwrap_or(false);
-        return crate::core::logs::get_game_logs_tee(&project, player, tail, match_pat, clear)
+        return crate::core::logs::get_game_logs_tee(&project, player, tail, match_pat, clear, ignore_case)
             .map_err(|e| anyhow!(e));
     }
     let source = args.get("source").and_then(|v| v.as_str()).unwrap_or("");
-    editor::get_game_logs(&project, source, tail, match_pat).map_err(|e| anyhow!(e))
+    editor::get_game_logs(&project, source, tail, match_pat, ignore_case).map_err(|e| anyhow!(e))
 }
 
 /// start_debug 的 players 参数解析（0.8.7 多人调试）：缺省/=1 → None（单人现状路径一字不动）；
@@ -174,7 +176,15 @@ fn tool_stop_debug(args: &Value) -> Result<Value> {
 fn tool_get_status(args: &Value) -> Result<Value> {
     let project = resolve_project(Some(args))?;
     let port = require_online(&project)?;
-    bridge_client::bridge_rpc(port, "get_status", json!({}), 15_000)
+    let mut v = bridge_client::bridge_rpc(port, "get_status", json!({}), 15_000)?;
+    // 0.8.10 R3：附本会话取证计数（失衡时 hint 提醒画面取证缺失）
+    if let Some(o) = v.as_object_mut() {
+        o.insert("evidence".into(), crate::core::evidence::snapshot());
+        if let Some(h) = crate::core::evidence::imbalance_hint() {
+            o.insert("evidence_hint".into(), json!(h));
+        }
+    }
+    Ok(v)
 }
 
 fn tool_publish_project(args: &Value) -> Result<Value> {
@@ -237,6 +247,7 @@ fn tool_capture_game(args: &Value) -> Result<Value> {
     };
     // max_width 缺省 1280（上下文防爆），与 ratio 同时给出时为最终上限
     let max_width = parse_max_width(args, 1280)?;
+    crate::core::evidence::count_capture();
     let mut out = capture::capture_game_mcp(&project, ratio, crop, max_width, player, restore, wait_ms)?;
     // （多人局未指定 player 的提示由 do_capture 内部统一附加，此处不重复——0.8.7 复审去重）
     if candidates > 1 {
@@ -269,6 +280,10 @@ pub fn parse_max_width(args: &Value, default: u32) -> Result<Option<u32>> {
 
 /// 透传桥 Gateway 元工具：剥离 project_path 后原样转发 params。
 /// timeout_ms 为客户端总超时（invoke_capability 按 params.timeout_ms + 缓冲计算）。
+/// 0.8.10：invoke_capability 三处增强——
+///   FR-08：顶层 player 兼容并入 args（防误放顶层静默路由 1 号玩家）；
+///   R3：eval/UI 操作证据计数；
+///   R4：UI 操作族 args.snapshot=true → 操作后自动截控件区域小图存证（返回 snapshot.path）。
 fn tool_bridge_meta(args: &Value, method: &str) -> Result<Value> {
     let project = resolve_project(Some(args))?;
     let port = require_online(&project)?;
@@ -286,6 +301,43 @@ fn tool_bridge_meta(args: &Value, method: &str) -> Result<Value> {
     if let Some(o) = params.as_object_mut() {
         o.remove("project_path");
     }
+
+    let mut top_player_merged = false;
+    let mut want_snapshot = false;
+    if method == "invoke_capability" {
+        // FR-08：player 误放顶层 → 并入 args（args 已带则不动），响应附 note 指正规范写法
+        if let Some(o) = params.as_object_mut() {
+            if let Some(p) = o.remove("player") {
+                let entry = o.entry("args").or_insert_with(|| json!({}));
+                if let Some(ao) = entry.as_object_mut() {
+                    ao.entry("player").or_insert_with(|| {
+                        top_player_merged = true;
+                        p
+                    });
+                }
+            }
+        }
+        let id = params.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        // R3：证据计数（lua.eval → eval_ops；UI 操作族 → ui_ops）
+        crate::core::evidence::count_invoke(id);
+        // R4：UI 操作族 snapshot=true → 剥离后转发（桥侧不认识该参数），操作后 exe 补截图
+        const SNAPSHOT_IDS: &[&str] =
+            &["lua.tap", "lua.drag_ui", "lua.click_ui", "lua.click_at", "lua.long_press_ui"];
+        if SNAPSHOT_IDS.contains(&id) {
+            let on = params
+                .get("args")
+                .and_then(|a| a.get("snapshot"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if on {
+                want_snapshot = true;
+                if let Some(ao) = params.get_mut("args").and_then(|a| a.as_object_mut()) {
+                    ao.remove("snapshot");
+                }
+            }
+        }
+    }
+
     let timeout_ms = if method == "invoke_capability" {
         // 桥内默认 5000；客户端放宽缓冲（与 bridge_invoke 一致 +5s）
         params
@@ -296,11 +348,60 @@ fn tool_bridge_meta(args: &Value, method: &str) -> Result<Value> {
     } else {
         30_000
     };
-    let result = bridge_client::bridge_rpc(port, method, params, timeout_ms)?;
+    let mut result = bridge_client::bridge_rpc(port, method, params.clone(), timeout_ms)?;
     if method == "get_events" {
         return Ok(slice_events(result, events_limit));
     }
+    if top_player_merged {
+        result["note"] = json!("顶层 player 已并入 args 生效（规范写法：player 放 args 对象内——{\"id\":\"lua.tap\",\"args\":{\"q\":\"...\",\"player\":2}}）");
+    }
+    if want_snapshot {
+        let invoke_args = params.get("args").cloned().unwrap_or(json!({}));
+        match snapshot_after_ui_op(&project, port, &invoke_args) {
+            Some(cap) => {
+                crate::core::evidence::count_capture();
+                result["snapshot"] = cap;
+            }
+            None => {
+                result["snapshot"] = json!({ "note": "snapshot 未取到：操作后控件已消失/界面已切换（若操作语义就是关闭界面，属正常）" });
+            }
+        }
+    }
     Ok(result)
+}
+
+/// R4 视觉回执：UI 操作后截控件区域小图。q/id → find_ui 重查 rect 局部截；
+/// x/y（click_at）→ 以落点为中心截固定窗口。全部失败回 None（调用方附说明）。
+fn snapshot_after_ui_op(project: &Path, port: u16, invoke_args: &Value) -> Option<Value> {
+    let player = invoke_args.get("player").and_then(|v| v.as_i64());
+    let crop = if let Some(q) = invoke_args
+        .get("q")
+        .or_else(|| invoke_args.get("id"))
+        .or_else(|| invoke_args.get("from_id")) // drag_ui 的源控件字段（0.8.10 全量测试补齐）
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+    {
+        let mut find_args = json!({ "q": q });
+        if let Some(p) = player {
+            find_args["player"] = json!(p);
+        }
+        let res = bridge_client::bridge_invoke(port, "lua.find_ui", find_args, 10_000).ok()?;
+        let item = res.get("items").and_then(|a| a.get(0))?;
+        let g = |r: &Value, k: &str| r.get(k).and_then(|v| v.as_f64());
+        let rect = item.get("rect")?;
+        match (g(rect, "x"), g(rect, "y"), g(rect, "w"), g(rect, "h")) {
+            (Some(x), Some(y), Some(w), Some(h)) => Some((x - 8.0, y - 8.0, w + 16.0, h + 16.0)),
+            _ => None,
+        }
+    } else if let (Some(x), Some(y)) = (
+        invoke_args.get("x").and_then(|v| v.as_f64()),
+        invoke_args.get("y").and_then(|v| v.as_f64()),
+    ) {
+        Some((x - 120.0, y - 80.0, 240.0, 160.0))
+    } else {
+        None
+    }?;
+    capture::capture_game_mcp(project, 1.0, Some(crop), Some(640), player, true, 200).ok()
 }
 
 /// get_events 本地切片（R1.4）：只留最新 limit 条（默认 50）+ 告知总数/丢弃数。
@@ -329,14 +430,14 @@ fn tools_list() -> Value {
             {"name":"editor_stop","description":"关闭星火编辑器（直接结束进程，不做优雅退出）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
             {"name":"start_debug","description":"启动调试（默认 restart_last_debug：跳过编辑器编译构建、载入最新 lua；无上一次调试版本自动回退全量；full=true 强制全量）。players=2~4 即模拟多人调试（编辑器内多 PIE 实例，等价官方「调试/模拟多人调试」全自动版：自动选人/互斥先停/逐槽位上线确认，返回 clients 归属清单）；players=[{player,delay}...] 逐玩家指定玩家号与入场延迟秒；players 缺省或=1 走单人现状","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"full":{"type":"boolean","default":false},"players":{"description":"人数 2~4（自动选人），或数组 [{player?:1~4, delay?:秒}]（player 缺省按位置取自动选人结果，delay 缺省 0）"}}}},
             {"name":"stop_debug","description":"停止调试","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
-            {"name":"get_game_logs","description":"获取游戏日志/编辑器日志/MCP桥日志的最新文件信息。tail_lines=0（默认）只回文件信息防爆上下文；match=正则时回命中行；tail_lines>0 回末尾原文。match/tail 模式下均附 errors 段：日志中的报错行（[error]/[ERROR]）单独上浮，防前置错误导致假阳性/假阴性漏判。同条行收纳：剥离行首[时间][pid]后相同的行只回最近一次并附(×N)计数。离线可用。source：game_client/game_server/service_core/xdeditor_client/bridge_main/bridge_audit，或聚合前缀（game/bridge），或 all；缺省 game。player=N（0.8.7 多人调试）：改走在线 tee 通道回该玩家客户端日志（需编辑器在线且 start_debug{players=N} 起过多人局；match/errors/同条收纳体验与文件型一致；tee 无历史、服务端日志仍省略 player 走文件型）；clear=true 清空该玩家 tee 缓冲","inputSchema":{"type":"object","properties":{"source":{"type":"string","default":"game","description":"日志源 key 或聚合前缀，缺省 game"},"tail_lines":{"type":"integer","default":0,"description":"返回末尾行数，0=只返回文件信息"},"match":{"type":"string","description":"正则过滤：回命中行（同条收纳+计数，上限100条），可与 tail_lines 同用"},"player":{"type":"integer","description":"多人调试分玩家日志（tee 通道，在线）；省略=文件型现状"},"clear":{"type":"boolean","default":false,"description":"清空该玩家 tee 缓冲（配合 player 用）"}}}},
+            {"name":"get_game_logs","description":"获取游戏日志/编辑器日志/MCP桥日志的最新文件信息。tail_lines=0（默认）只回文件信息防爆上下文；match=正则时回命中行（默认区分大小写，ignore_case=true 不区分）；tail_lines>0 回末尾原文（match/tail_lines 可同用并返）。match/tail 模式下均附 errors 段 + warns 段：报错行（[error]/[ERROR]）与警告行（[warning]/[warn]，如 protocol duplicate register=探针覆盖游戏 handler 的前兆）分别单独上浮，防前置错误/警告导致假阳性/假阴性漏判。同条行收纳：剥离行首[时间][pid][级别][序号]后相同的行只回最近一次并附(×N)计数。离线可用。source：game_client/game_server/service_core/xdeditor_client/bridge_main/bridge_audit，或聚合前缀（game/bridge），或 all；缺省 game。player=N（0.8.7 多人调试）：改走在线 tee 通道回该玩家客户端日志（需编辑器在线且 start_debug{players=N} 起过多人局；match/errors/warns/同条收纳体验与文件型一致；tee 无历史、服务端日志仍省略 player 走文件型）；clear=true 清空该玩家 tee 缓冲","inputSchema":{"type":"object","properties":{"source":{"type":"string","default":"game","description":"日志源 key 或聚合前缀，缺省 game"},"tail_lines":{"type":"integer","default":0,"description":"返回末尾行数，0=只返回文件信息"},"match":{"type":"string","description":"正则过滤：回命中行（同条收纳+计数，上限100条），可与 tail_lines 同用；默认区分大小写"},"ignore_case":{"type":"boolean","default":false,"description":"match 不区分大小写"},"player":{"type":"integer","description":"多人调试分玩家日志（tee 通道，在线）；省略=文件型现状"},"clear":{"type":"boolean","default":false,"description":"清空该玩家 tee 缓冲（配合 player 用）"}}}},
             {"name":"publish_project","description":"发布项目到创作者中心（分钟级耗时；danger 级默认放行，调用进审计日志）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"timeout_ms":{"type":"integer","default":600000}}}},
-            {"name":"capture_game","description":"截取调试中的游戏画面/游戏截图（纯游戏画面+游戏 UI，不含编辑器界面；编辑器被遮挡/最小化均可后台截取），返回 png 路径，用 Read 查看。q=\"控件文本或id子串\" 只截该 UI 局部（首选，免全图撑上下文；pad 控制留白，缺省 8）；crop={x,y,w,h} 手动截视口局部（游戏视口逻辑坐标，越界自动 clamp）；ratio 输出倍率（0.5/1/2/3/4）；max_width 输出宽度上限（默认 1280 防爆上下文，响应回显 downscaled/natural_width，像素级判读缝隙/字体时显式调大）。player=N（0.8.7 多人调试）：截指定玩家视角（内部自动切焦/等帧/切回，调用方无感；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）；restore=false 截完不切回原焦点（批量连截省时）；wait_ms 切焦后等帧毫秒（默认 200）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"q":{"type":"string","description":"控件文本/id 子串：find_ui 定位后局部截图（看单个 UI 的首选）"},"pad":{"type":"number","default":8},"ratio":{"type":"number","default":1},"crop":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]},"max_width":{"type":"integer","default":1280},"player":{"type":"integer","description":"多人调试截指定玩家视角（1~4）"},"restore":{"type":"boolean","default":true,"description":"截完切回原焦点 tab"},"wait_ms":{"type":"integer","default":200,"description":"切焦后等帧毫秒"}}}},
-            {"name":"get_status","description":"获取编辑器状态（地图路径/调试中/弹窗抑制/clients 客户端清单——多人调试时含各玩家 player/slot_id/user_id/online/paused）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
-            {"name":"run_scenario","description":"场景脚本：把「起调试→操作 UI→验证」编成 steps 数组一次跑完，替代多次单步往返。步骤 op：invoke{id,args,timeout_ms}（调 lua.* 等桥能力，如 lua.tap/lua.pick/lua.hover_ui/lua.set_pause）/start_debug{full?,players?}/stop_debug/capture{ratio,crop,max_width,player?}/capture_ui{q,pad,max_width,player?}（find→局部截图一步，看单个UI用）/logs{source,tail_lines,match,player?}/wait{ms}/note{text}/wait_for{q|id,present,timeout_ms,player?}/assert_text{q,present,player?}；多人调试：场景级 default_player 设步骤缺省玩家号，步骤级 player 覆盖（0.8.7）；步骤变量：任意步骤 save_as:\"名\" 存结果标量（默认 clickable_ancestor/id），后续步骤字符串字段写 {$名} 引用；默认遇错即停（stop_on_error=false 继续），每步结果截断 2KB","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"default_player":{"type":"integer","description":"多人调试步骤缺省玩家号（步骤级 player 覆盖）"},"steps":{"type":"array","items":{"type":"object"}},"stop_on_error":{"type":"boolean","default":true}},"required":["steps"]}},
+            {"name":"capture_game","description":"截取调试中的游戏画面/游戏截图（纯游戏画面+游戏 UI，不含编辑器界面；编辑器被遮挡/最小化均可后台截取），返回 png 路径——读图走视觉通道（图像理解/vision 类技能；模型 Read 不一定支持图像；场景跑完对全部截图批量读图为标准收尾动作；像素级判定如行列数/压暗/精确色值用区域平均亮度数值比对，视觉模型只做语义级判断）。q=\"控件文本或id子串\" 只截该 UI 局部（首选，免全图撑上下文；pad 控制留白，缺省 8）；crop={x,y,w,h} 手动截视口局部（游戏视口逻辑坐标，越界自动 clamp）；ratio 输出倍率（0.5/1/2/3/4）；max_width 输出宽度上限（默认 1280 防爆上下文，响应回显 downscaled/natural_width，像素级判读缝隙/字体时显式调大）。player=N（0.8.7 多人调试）：截指定玩家视角（内部自动切焦/等帧/切回，调用方无感；缺省=多人局 1 号玩家/单人局唯一玩家；单人局带 player 自动回退+告知）；restore=false 截完不切回原焦点（批量连截省时）；wait_ms 切焦后等帧毫秒（默认 200）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"q":{"type":"string","description":"控件文本/id 子串：find_ui 定位后局部截图（看单个 UI 的首选）"},"pad":{"type":"number","default":8},"ratio":{"type":"number","default":1},"crop":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"w":{"type":"number"},"h":{"type":"number"}},"required":["x","y","w","h"]},"max_width":{"type":"integer","default":1280},"player":{"type":"integer","description":"多人调试截指定玩家视角（1~4）"},"restore":{"type":"boolean","default":true,"description":"截完切回原焦点 tab"},"wait_ms":{"type":"integer","default":200,"description":"切焦后等帧毫秒"}}}},
+            {"name":"get_status","description":"获取编辑器状态（地图路径/调试中/弹窗抑制/clients 客户端清单——多人调试时含各玩家 player/slot_id/user_id/online/paused）。附 evidence 取证计数（本会话 captures/ui_ops/eval_ops；大量 eval 且零截图时 evidence_hint 提醒画面取证缺失，0.8.10）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
+            {"name":"run_scenario","description":"场景脚本：把「起调试→操作 UI→验证」编成 steps 数组一次跑完。定位：适合定稿后归档复跑（已验证路径一把跑完）；探索期排错用单步命令逐段迭代更快（0.8.10 实测修正）。步骤 op：invoke{id,args,timeout_ms}（调 lua.* 等桥能力，如 lua.tap/lua.pick/lua.hover_ui/lua.set_pause）/start_debug{full?,players?}/stop_debug/capture{ratio,crop,max_width,player?}/capture_ui{q,scope?,tag?,pad,max_width,player?}（find→局部截图一步，看单个UI用）/verify_ui{q,scope?,tag?,pad,max_width,player?}（取证：UI存在性断言+局部截图一步，0.8.10）/logs{source,tail_lines,match,ignore_case,player?}/check_logs{source,match,errors_zero=true,ignore_case,player?}（取证：查日志+errors必须为0断言，0.8.10）/wait{ms}/note{text}/wait_for{q|id,present,timeout_ms,scope?,tag?,player?}/assert_text{q,present,scope?,tag?,player?}；场景结束自动附 log_summary（期间日志摘要：新增行数/errors/warnings/top重复行——刷屏类问题天然暴露）与 evidence（本会话取证计数）；多人调试：场景级 default_player 设步骤缺省玩家号，步骤级 player 覆盖（0.8.7）；步骤变量：任意步骤 save_as:\"名\" 存结果标量（默认 clickable_ancestor/id，报错会列出可取字段，可用 save_field 指定），后续步骤字符串字段写 {$名} 引用；默认遇错即停（stop_on_error=false 继续），每步结果截断 2KB","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"default_player":{"type":"integer","description":"多人调试步骤缺省玩家号（步骤级 player 覆盖）"},"steps":{"type":"array","items":{"type":"object"}},"stop_on_error":{"type":"boolean","default":true}},"required":["steps"]}},
             {"name":"search_capabilities","description":"[在线透传桥 Gateway] 搜索编辑器能力（id/描述/别名/标签模糊匹配）。返回简化签名+风险级别，多数场景 search→invoke 两步完成调用；编辑器完整能力（能力目录数百条）都经此触达","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"query":{"type":"string","description":"关键词，可多个（空格分隔，全中优先、无全中自动回退部分命中）"},"limit":{"type":"integer","description":"返回条数，默认 5，上限 10"}},"required":["query"]}},
             {"name":"describe_capability","description":"[在线透传桥 Gateway] 查看能力完整定义（参数 JSON Schema/返回/风险/示例/前置条件），疑难时深查","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"id":{"type":"string","description":"能力 id（search 返回的）"}},"required":["id"]}},
-            {"name":"invoke_capability","description":"[在线透传桥 Gateway] 统一调用入口。参数校验失败时错误内嵌 compact schema，按提示修正后重试即可","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"id":{"type":"string"},"args":{"type":"object","description":"调用参数"},"timeout_ms":{"type":"integer","description":"超时毫秒，默认 5000"}},"required":["id"]}},
+            {"name":"invoke_capability","description":"[在线透传桥 Gateway] 统一调用入口。参数校验失败时错误内嵌 compact schema，按提示修正后重试即可。多人定向 player=N 一律放 args 对象内（0.8.10 起顶层误放会兼容并入并附 note 指正）。UI 操作族能力（lua.tap/drag_ui/click_ui/click_at/long_press_ui）args 带 snapshot=true 时操作后自动截控件区域小图存证（返回 snapshot.path，0.8.10 视觉回执）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"id":{"type":"string"},"args":{"type":"object","description":"调用参数"},"timeout_ms":{"type":"integer","description":"超时毫秒，默认 5000"}},"required":["id"]}},
             {"name":"list_namespaces","description":"[在线透传桥 Gateway] 列出能力命名空间（svc/cpp/datacore/cmd/lua/sys）及各空间能力数","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"}}}},
             {"name":"get_events","description":"[在线透传桥 Gateway] 拉取事件缓冲中 seq > since 的事件（地图加载/调试启动/弹窗抑制/能力调用失败/danger 拒绝等）。MCP 层本地切片：默认只回最新 50 条并附 events_total/events_dropped，防长会话事件缓冲灌入；limit 可调","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"since":{"type":"integer"},"limit":{"type":"integer","default":50,"description":"最多返回最新条数（MCP 层本地切片）"}}}},
             {"name":"set_suppress","description":"[在线透传桥 Gateway] 设置编辑器弹窗抑制开关（抑制期间弹窗自动按确认/关闭处理）","inputSchema":{"type":"object","properties":{"project_path":{"type":"string"},"enabled":{"type":"boolean"}},"required":["enabled"]}}
@@ -402,9 +503,9 @@ fn with_hint(tool: &str, mut v: Value, args: &Value) -> Value {
             "验证画面用 capture_game 截图；排障用 get_game_logs（先 tail_lines=0 看文件信息，再用 match 过滤关键行）；多人调试：start_debug{players=2~4}，之后 lua.*/capture_game/get_game_logs 带 player=N 定向",
         ),
         "capture_game" => Some(if args.get("q").is_some() || args.get("crop").is_some() {
-            "用 Read 查看 png"
+            "读图走视觉通道（图像理解/vision 类技能，模型 Read 不一定支持图像）；像素级判定（行列数/压暗/精确色值）用区域平均亮度数值比对，视觉模型只做语义级判断"
         } else {
-            "用 Read 查看 png；只看某个 UI 不要截全图——重截带 q=\"控件文本/id\"（自动定位局部截图），或 crop={\"x\",\"y\",\"w\",\"h\"}（视口逻辑坐标）"
+            "读图走视觉通道（图像理解/vision 类技能，模型 Read 不一定支持图像）；只看某个 UI 不要截全图——重截带 q=\"控件文本/id\"（自动定位局部截图），或 crop={\"x\",\"y\",\"w\",\"h\"}（视口逻辑坐标）"
         }),
         "get_game_logs" => Some(if args.get("match").and_then(|v| v.as_str()).is_some() {
             "未命中或需上下文时可调宽正则，或按返回的 path 自行读取原文"
@@ -416,7 +517,12 @@ fn with_hint(tool: &str, mut v: Value, args: &Value) -> Value {
         "get_status" => Some("调试闭环：start_debug 起局 → capture_game 看画面 → get_game_logs 排障"),
         "search_capabilities" => Some("下一步 describe_capability 看参数定义，确认后 invoke_capability 调用"),
         "describe_capability" => Some("确认参数后用 invoke_capability {id, args} 调用"),
-        "invoke_capability" => Some("界面调试闭环：lua.find_ui 定位 → lua.tap/lua.pick 一步操作（悬停/拖拽/滚动用 lua.hover_ui/drag_ui/scroll_ui）→ capture_game(crop) 验证"),
+        "invoke_capability" => Some(if args.get("id").and_then(|v| v.as_str()) == Some("lua.eval") {
+            // R1 eval 反问引导：eval 是兜底通道，提醒 UI 可达操作走真实链路
+            "eval 是兜底通道：该操作有对应 UI 入口吗？有则用 lua.find_ui 定位 → lua.tap 走真实路径——绕过 UI 的测试不算 UI 已测"
+        } else {
+            "界面调试闭环：lua.find_ui 定位 → lua.tap/lua.pick 一步操作（悬停/拖拽/滚动用 lua.hover_ui/drag_ui/scroll_ui）→ capture_game(crop) 验证"
+        }),
         "list_namespaces" => Some("用 search_capabilities 按关键词搜索具体能力"),
         "get_events" => Some("增量拉取传 since=<上次返回的 latest>；事件多时已按 limit 截取最新若干条"),
         _ => None,

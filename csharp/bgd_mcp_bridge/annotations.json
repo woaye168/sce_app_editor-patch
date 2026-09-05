@@ -167,15 +167,15 @@
       "precondition": "调试进行中；目标为 pscroll 容器（find_ui scrollable=true）"
     },
     "lua.tap": {
-      "description": "点一下（复合命令：按文本/id 找控件→自动跟 clickable_ancestor→点击，一步完成；多命中取 id 序第一个，操作文本按钮的首选；可带 expect/expect_absent 操作后自动断言文本出现/消失——注入成功≠业务生效，关键操作建议带验证）",
+      "description": "点一下（复合命令：按文本/id 找控件→自动跟 clickable_ancestor→点击，一步完成；多命中取 id 序第一个，操作文本按钮的首选；可带 scope（页名前缀过滤）/tag（语义标记）缩小候选——0.8.10；可带 expect/expect_absent 操作后自动断言文本出现/消失——注入成功≠业务生效，关键操作建议带验证；expect 为 3 帧窗口只适用本地即时变化，需服务端往返的变化（如退出组队）改用 wait_for/assert_text 轮询——0.8.10；可带 snapshot=true 操作后自动截控件区域小图存证）",
       "aliases": ["tap", "点", "点一下", "按", "点击文本"],
       "tags": ["UI", "点击", "调试"],
       "risk": "write",
       "precondition": "调试进行中",
-      "example": "{\"id\":\"lua.tap\",\"args\":{\"q\":\"商店\",\"expect\":\"钱包\"}}"
+      "example": "{\"id\":\"lua.tap\",\"args\":{\"q\":\"商店\",\"scope\":\"main\",\"expect\":\"钱包\",\"snapshot\":true}}"
     },
     "lua.pick": {
-      "description": "下拉选择（复合命令：q 定位下拉控件→自动展开 anchor→点菜单项，一步完成；item 为菜单项文本子串；已展开时幂等）",
+      "description": "下拉选择（复合命令：q 定位下拉控件→自动展开 anchor→点菜单项，一步完成；item 为菜单项文本子串；已展开时幂等；可带 scope/tag 缩小 q 候选——0.8.10）",
       "aliases": ["pick", "选择", "下拉选", "选项"],
       "tags": ["UI", "下拉", "调试"],
       "risk": "write",
@@ -197,11 +197,19 @@
       "precondition": "调试进行中"
     },
     "lua.eval": {
-      "description": "游戏 VM（StateGame）逃生舱：pcall 执行任意 Lua 代码。eval 代码与游戏源码逐字一致——require('libs.xxx'/'src.xxx') 与 res 资源字面量（'src/res/image/a.png' 等）直写即可，dbg_bus 按 bgd_sce_tools 构建盖戳的 _G.bgd_path_rules 自动翻译成运行时形态（盖戳缺失会响亮报错提示重新构建；'@__MAIN_MAP__' 占位符不存在，勿用）；bgd_api.* 全局表直接可用。编辑器 VM 用 lua.run_lua；danger 级默认放行，调用进审计日志",
+      "description": "游戏 VM（StateGame）逃生舱（danger 级，兜底通道）：pcall 执行任意 Lua 代码。仅用于：① 无对应工具的运行时状态读取/断言；② 测试探针安装（链式包装 base.proto 捕获消息，禁 protocol.on 覆盖游戏 handler）；③ 统计性验证（概率/分布采样）；④ 构造 UI 无法到达的边界态（满包/非法参数/断档）。禁止用于：能用 find_ui/tap/drag_ui/key_down 完成的 UI 操作——UI 链路必须走真实操作验证，eval 绕过 UI 的测试不算 UI 已测。eval 代码与游戏源码逐字一致——require('libs.xxx'/'src.xxx') 与 res 资源字面量（'src/res/image/a.png' 等）直写即可，dbg_bus 按 bgd_sce_tools 构建盖戳的 _G.bgd_path_rules 自动翻译成运行时形态（盖戳缺失会响亮报错提示重新构建；'@__MAIN_MAP__' 占位符不存在，勿用）；bgd_api.* 全局表直接可用。编辑器 VM 用 lua.run_lua；danger 级默认放行，调用进审计日志",
       "aliases": ["eval", "游戏侧eval", "游戏内执行", "dbg_eval"],
       "tags": ["lua", "逃生舱", "游戏侧", "调试"],
       "risk": "danger",
       "precondition": "调试进行中"
+    },
+    "lua.server_eval": {
+      "description": "服务端 VM 逃生舱（0.8.10 R6，danger 级）：pcall 执行任意 Lua 代码于服务端——读服务端权威数据（背包/属性/战斗记账）、调物品/造边界态、验证服务端逻辑。链路：客户端 dbg_bus 转发→服务端 dbg handler（仅测试环境注册：base.test 存在=编辑器调试/PIE，正式环境物理无入口）。require('libs.xxx'/'src.xxx') 源码形态直写（翻译由构建盖戳 _G.bgd_path_rules.modules_server 驱动——bgd_sce_tools 盖到 src/common，盖戳缺失响亮报错提示重新构建）；bgd_api.server.* 全局表直接可用。结果表自动 JSON 序列化返回。与 lua.eval（客户端 VM）分工：UI/客户端状态用 eval，服务端权威状态用 server_eval",
+      "aliases": ["server_eval", "服务端eval", "服务器执行", "服务端状态"],
+      "tags": ["lua", "逃生舱", "服务端", "调试"],
+      "risk": "danger",
+      "precondition": "调试进行中（PIE 局）",
+      "example": "{\"id\":\"lua.server_eval\",\"args\":{\"code\":\"local BagSystem = require('src.server.BagSystem'); return BagSystem.GetBag(38672742)\"}}"
     },
     "lua.set_pause": {
       "description": "玩家暂停/恢复（0.8.7 多人调试）：paused=true 断开该玩家 PIE 客户端（VM 停 tick：dbg 命令不应答、日志无新行、画面定格最后一帧，host 局不销毁）；paused=false 重连恢复——断线/重连测试场景的唯一手段。官方 tab 暂停按钮同款（disconnect/reconnect_game_in_editor）；编辑器 VM 直调不经 dbg 总线，旧框架也能用",

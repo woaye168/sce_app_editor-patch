@@ -7,6 +7,7 @@ pub mod capture;
 pub mod capture_probe;
 pub mod crypto;
 pub mod editor;
+pub mod evidence;
 pub mod kernel;
 pub mod locate;
 pub mod log;

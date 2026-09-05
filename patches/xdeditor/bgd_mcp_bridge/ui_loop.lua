@@ -221,6 +221,9 @@ function M.setup(ctx)
     -- 游戏侧 eval 逃生舱（StateGame VM 内 pcall 任意 Lua；danger 级，与编辑器侧 run_lua 同级。
     -- 同走全参透传：参数校验是游戏侧 eval 命令自己的职责，白名单曾静默吞参数的教训见上）
     handlers.eval = passthrough('eval')
+    -- 服务端 eval（0.8.10 R6：客户端 dbg_bus 转发 → 服务端 dbg handler 仅 PIE 调试局注册；
+    -- 读服务端权威数据/调物品等调试操控，danger 级同 eval）
+    handlers.server_eval = passthrough('server_eval')
 
     return handlers
 end
